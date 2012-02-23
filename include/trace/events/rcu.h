@@ -207,6 +207,26 @@ TRACE_EVENT(rcu_dyntick,
 		  __entry->oldnesting, __entry->newnesting)
 );
 
+/*
+ * Tracepoint for RCU preparation for idle, the goal being to get RCU
+ * processing done so that the current CPU can shut off its scheduling
+ * clock and enter dyntick-idle mode.  One way to accomplish this is
+ * to drain all RCU callbacks from this CPU, and the other is to have
+ * done everything RCU requires for the current grace period.  In this
+ * latter case, the CPU will be awakened at the end of the current grace
+ * period in order to process the remainder of its callbacks.
+ *
+ * These tracepoints take a string as argument:
+ *
+ *	"No callbacks": Nothing to do, no callbacks on this CPU.
+ *	"In holdoff": Nothing to do, holding off after unsuccessful attempt.
+ *	"Begin holdoff": Attempt failed, don't retry until next jiffy.
+ *	"Dyntick with callbacks": Entering dyntick-idle despite callbacks.
+ *	"More callbacks": Still more callbacks, try again to clear them out.
+ *	"Callbacks drained": All callbacks processed, off to dyntick idle!
+ *	"Timer": Timer fired to cause CPU to continue processing callbacks.
+ *	"Cleanup after idle": Idle exited, timer canceled.
+ */
 TRACE_EVENT(rcu_prep_idle,
 
 	TP_PROTO(char *reason),
