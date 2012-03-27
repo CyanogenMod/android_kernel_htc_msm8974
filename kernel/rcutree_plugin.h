@@ -112,7 +112,20 @@ static void rcu_preempt_qs(int cpu)
 	current->rcu_read_unlock_special &= ~RCU_READ_UNLOCK_NEED_QS;
 }
 
-static void rcu_preempt_note_context_switch(int cpu)
+/*
+ * We have entered the scheduler, and the current task might soon be
+ * context-switched away from.  If this task is in an RCU read-side
+ * critical section, we will no longer be able to rely on the CPU to
+ * record that fact, so we enqueue the task on the blkd_tasks list.
+ * The task will dequeue itself when it exits the outermost enclosing
+ * RCU read-side critical section.  Therefore, the current grace period
+ * cannot be permitted to complete until the blkd_tasks list entries
+ * predating the current grace period drain, in other words, until
+ * rnp->gp_tasks becomes NULL.
+ *
+ * Caller must disable preemption.
+ */
+void rcu_preempt_note_context_switch(void)
 {
 	struct task_struct *t = current;
 	unsigned long flags;
@@ -122,8 +135,8 @@ static void rcu_preempt_note_context_switch(int cpu)
 	if (t->rcu_read_lock_nesting > 0 &&
 	    (t->rcu_read_unlock_special & RCU_READ_UNLOCK_BLOCKED) == 0) {
 
-		
-		rdp = per_cpu_ptr(rcu_preempt_state.rda, cpu);
+		/* Possibly blocking in an RCU read-side critical section. */
+		rdp = __this_cpu_ptr(rcu_preempt_state.rda);
 		rnp = rdp->mynode;
 		raw_spin_lock_irqsave(&rnp->lock, flags);
 		t->rcu_read_unlock_special |= RCU_READ_UNLOCK_BLOCKED;
@@ -156,7 +169,7 @@ static void rcu_preempt_note_context_switch(int cpu)
 	}
 
 	local_irq_save(flags);
-	rcu_preempt_qs(cpu);
+	rcu_preempt_qs(smp_processor_id());
 	local_irq_restore(flags);
 }
 
@@ -711,10 +724,10 @@ void rcu_force_quiescent_state(void)
 }
 EXPORT_SYMBOL_GPL(rcu_force_quiescent_state);
 
-static void rcu_preempt_note_context_switch(int cpu)
-{
-}
-
+/*
+ * Because preemptible RCU does not exist, there are never any preempted
+ * RCU readers.
+ */
 static int rcu_preempt_blocked_readers_cgp(struct rcu_node *rnp)
 {
 	return 0;
