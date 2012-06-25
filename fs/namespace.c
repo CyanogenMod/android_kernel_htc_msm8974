@@ -384,6 +384,22 @@ struct mount *__lookup_mnt(struct vfsmount *mnt, struct dentry *dentry,
 	return found;
 }
 
+/*
+ * lookup_mnt - Return the first child mount mounted at path
+ *
+ * "First" means first mounted chronologically.  If you create the
+ * following mounts:
+ *
+ * mount /dev/sda1 /mnt
+ * mount /dev/sda2 /mnt
+ * mount /dev/sda3 /mnt
+ *
+ * Then lookup_mnt() on the base /mnt dentry in the root mount will
+ * return successively the root dentry and vfsmount of /dev/sda1, then
+ * /dev/sda2, then /dev/sda3, then NULL.
+ *
+ * lookup_mnt takes a reference to the found vfsmount.
+ */
 struct vfsmount *lookup_mnt(struct path *path)
 {
 	struct mount *child_mnt;
