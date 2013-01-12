@@ -30,6 +30,8 @@ static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 
 	if (!*bh)
 		*bh = sb_getblk(sb, mmp_block);
+	if (!*bh)
+		return -ENOMEM;
 	if (*bh) {
 		get_bh(*bh);
 		lock_buffer(*bh);
