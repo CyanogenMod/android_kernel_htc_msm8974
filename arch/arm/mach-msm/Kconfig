@@ -3172,6 +3172,11 @@ config PROJECT_NAME
         help
           Support for Project Name
 
+config HAS_MACH_MEMUTILS
+	default n
+	bool "Motorola MSM memcpy enhancements"
+	help
+	Faster memcpy performance for Krait
 endif
 
 config HTC_MONITOR_SUBSYS_SLEEP_TIME
