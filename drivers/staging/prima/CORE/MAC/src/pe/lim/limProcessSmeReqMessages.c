@@ -4059,16 +4059,6 @@ __limProcessSmeStatsRequest(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
             return;
     }
 
-    if ( !pMac->lim.gLimRspReqd )
-    {
-        vos_mem_free( pMsgBuf );
-        return;
-    }
-    else
-    {
-        pMac->lim.gLimRspReqd = FALSE;
-    }
-
     msgQ.reserved = 0;
     msgQ.bodyptr = pMsgBuf;
     msgQ.bodyval = 0;
@@ -4113,16 +4103,6 @@ __limProcessSmeGetStatisticsRequest(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
     //pPEStatsReq->msgType should be eWNI_SME_GET_STATISTICS_REQ
 
     msgQ.type = WDA_GET_STATISTICS_REQ;    
-
-    if ( !pMac->lim.gLimRspReqd )
-    {
-        vos_mem_free( pMsgBuf );
-        return;
-    }
-    else
-    {
-        pMac->lim.gLimRspReqd = FALSE;
-    }
 
     msgQ.reserved = 0;
     msgQ.bodyptr = pMsgBuf;
