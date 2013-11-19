@@ -1412,9 +1412,6 @@ static void do_dbs_timer(struct work_struct *work)
 		} else {
 			delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate
 				* dbs_info->rate_mult);
-
-			if (num_online_cpus() > 1)
-				delay -= jiffies % delay;
 		}
 	} else {
 		delay = dbs_info->freq_lo_jiffies;
