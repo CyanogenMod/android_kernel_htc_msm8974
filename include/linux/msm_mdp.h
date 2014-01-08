@@ -79,6 +79,8 @@
 #define MSMFB_WRITEBACK_SET_MIRRORING_HINT _IOW(MSMFB_IOCTL_MAGIC, 167, \
 						unsigned int)
 #define MSMFB_ASYNC_BLIT              _IOW(MSMFB_IOCTL_MAGIC, 168, unsigned int)
+#define MSMFB_OVERLAY_PREPARE		_IOWR(MSMFB_IOCTL_MAGIC, 169, \
+						struct mdp_overlay_list)
 
 #define MSMFB_GET_USB_PROJECTOR_INFO _IOR(MSMFB_IOCTL_MAGIC, 301, struct msmfb_usb_projector_info)
 #define MSMFB_SET_USB_PROJECTOR_INFO _IOW(MSMFB_IOCTL_MAGIC, 302, struct msmfb_usb_projector_info)
@@ -857,6 +859,24 @@ struct mdp_display_commit {
 	struct fb_var_screeninfo var;
 	struct mdp_buf_fence buf_fence;
 	struct mdp_rect roi;
+};
+
+/**
+* struct mdp_overlay_list - argument for ioctl MSMFB_OVERLAY_PREPARE
+* @num_overlays:	Number of overlay layers as part of the frame.
+* @overlay_list:	Pointer to a list of overlay structures identifying
+*			the layers as part of the frame
+* @flags:		Flags can be used to extend behavior.
+* @processed_overlays:	Output parameter indicating how many pipes were
+*			successful. If there are no errors this number should
+*			match num_overlays. Otherwise it will indicate the last
+*			successful index for overlay that couldn't be set.
+*/
+struct mdp_overlay_list {
+	uint32_t num_overlays;
+	struct mdp_overlay **overlay_list;
+	uint32_t flags;
+	uint32_t processed_overlays;
 };
 
 struct mdp_page_protection {
