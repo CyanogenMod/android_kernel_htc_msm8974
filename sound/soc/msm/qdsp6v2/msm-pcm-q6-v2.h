@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2012-2013 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014 The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -68,6 +68,7 @@ struct msm_audio {
 
 	int abort; 
 
+	bool reset_event;
 	int enabled;
 	int close_ack;
 	int cmd_ack;
