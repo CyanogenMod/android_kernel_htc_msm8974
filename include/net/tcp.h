@@ -99,8 +99,10 @@ extern void tcp_time_wait(struct sock *sk, int state, int timeo);
 
 #define TCP_RESOURCE_PROBE_INTERVAL ((unsigned)(HZ/2U)) 
 
+#define TCP_DELACK_SEG          1
 #define TCP_KEEPALIVE_TIME	(120*60*HZ)	
 #define TCP_KEEPALIVE_PROBES	9		
+
 #define TCP_KEEPALIVE_INTVL	(75*HZ)
 
 #define MAX_TCP_KEEPIDLE	32767
@@ -203,6 +205,10 @@ extern __be32 sysctl_tcp_syn_fail;
 #endif 
 
 extern atomic_long_t tcp_memory_allocated;
+
+/* sysctl variables for controlling various tcp parameters */
+extern int sysctl_tcp_delack_seg;
+extern int sysctl_tcp_use_userconfig;
 extern struct percpu_counter tcp_sockets_allocated;
 extern int tcp_memory_pressure;
 
@@ -287,6 +293,11 @@ extern void tcp_twsk_destructor(struct sock *sk);
 extern ssize_t tcp_splice_read(struct socket *sk, loff_t *ppos,
 			       struct pipe_inode_info *pipe, size_t len,
 			       unsigned int flags);
+/* sysctl master controller */
+extern int tcp_use_userconfig_sysctl_handler(struct ctl_table *, int,
+				void __user *, size_t *, loff_t *);
+extern int tcp_proc_delayed_ack_control(struct ctl_table *, int,
+				void __user *, size_t *, loff_t *);
 
 static inline void tcp_dec_quickack_mode(struct sock *sk,
 					 const unsigned int pkts)
