@@ -59,6 +59,7 @@ struct disp_info_notify {
 	struct completion comp;
 	struct mutex lock;
 	int value;
+	int ref_count;
 };
 
 struct msm_sync_pt_data {
