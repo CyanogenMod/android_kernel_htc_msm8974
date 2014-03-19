@@ -35,6 +35,9 @@
 #include <linux/pm_runtime.h>
 #include <linux/kernel.h>
 #include <linux/gpio.h>
+#include <linux/pm_qos.h>
+#include <linux/pm.h>
+#include <mach/cpuidle.h>
 #include "wcd9320.h"
 #include "wcd9xxx-resmgr.h"
 #include "wcd9xxx-common.h"
@@ -466,6 +469,7 @@ struct taiko_priv {
 			enum wcd9xxx_codec_event);
 
 	struct list_head reg_save_restore;
+	struct pm_qos_request pm_qos_req;
 };
 
 static const u32 comp_shift[] = {
@@ -2906,8 +2910,15 @@ static int taiko_codec_config_mad(struct snd_soc_codec *codec)
 	const struct firmware *fw;
 	struct mad_audio_cal *mad_cal;
 	const char *filename = TAIKO_MAD_AUDIO_FIRMWARE_PATH;
+	struct taiko_priv *taiko = snd_soc_codec_get_drvdata(codec);
 
 	pr_debug("%s: enter\n", __func__);
+	/* wakeup for codec calibration access */
+	pm_qos_add_request(&taiko->pm_qos_req,
+			   PM_QOS_CPU_DMA_LATENCY,
+			   PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(&taiko->pm_qos_req,
+			      msm_cpuidle_get_deep_idle_latency());
 	ret = request_firmware(&fw, filename, codec->dev);
 	if (ret != 0) {
 		pr_err("Failed to acquire MAD firwmare data %s: %d\n", filename,
@@ -2981,7 +2992,9 @@ static int taiko_codec_config_mad(struct snd_soc_codec *codec)
 
 	release_firmware(fw);
 	pr_debug("%s: leave ret %d\n", __func__, ret);
-
+	pm_qos_update_request(&taiko->pm_qos_req,
+			      PM_QOS_DEFAULT_VALUE);
+	pm_qos_remove_request(&taiko->pm_qos_req);
 	return ret;
 }
 
