@@ -1,0 +1,116 @@
+#ifndef __SOUND_ASOUND_FM_H
+#define __SOUND_ASOUND_FM_H
+
+/*
+ *  Advanced Linux Sound Architecture - ALSA
+ *
+ *  Interface file between ALSA driver & user space
+ *  Copyright (c) 1994-98 by Jaroslav Kysela <perex@perex.cz>,
+ *                           4Front Technologies
+ *
+ *  Direct FM control
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
+ *
+ */
+
+#define SNDRV_DM_FM_MODE_OPL2	0x00
+#define SNDRV_DM_FM_MODE_OPL3	0x01
+
+struct snd_dm_fm_info {
+	unsigned char fm_mode;		
+	unsigned char rhythm;		
+};
+
+
+struct snd_dm_fm_voice {
+	unsigned char op;		
+	unsigned char voice;		
+
+	unsigned char am;		
+	unsigned char vibrato;		
+	unsigned char do_sustain;	
+	unsigned char kbd_scale;	
+	unsigned char harmonic;		
+	unsigned char scale_level;	
+	unsigned char volume;		
+
+	unsigned char attack;		
+	unsigned char decay;		
+	unsigned char sustain;		
+	unsigned char release;		
+
+	unsigned char feedback;		
+	unsigned char connection;	
+	unsigned char left;		
+	unsigned char right;		
+	unsigned char waveform;		
+};
+
+
+struct snd_dm_fm_note {
+	unsigned char voice;	
+	unsigned char octave;	
+	unsigned int fnum;	
+	unsigned char key_on;	
+};
+
+
+struct snd_dm_fm_params {
+	unsigned char am_depth;		
+	unsigned char vib_depth;	
+	unsigned char kbd_split;	
+	unsigned char rhythm;		
+
+	
+	unsigned char bass;
+	unsigned char snare;
+	unsigned char tomtom;
+	unsigned char cymbal;
+	unsigned char hihat;
+};
+
+
+#define SNDRV_DM_FM_IOCTL_INFO		_IOR('H', 0x20, struct snd_dm_fm_info)
+#define SNDRV_DM_FM_IOCTL_RESET		_IO ('H', 0x21)
+#define SNDRV_DM_FM_IOCTL_PLAY_NOTE	_IOW('H', 0x22, struct snd_dm_fm_note)
+#define SNDRV_DM_FM_IOCTL_SET_VOICE	_IOW('H', 0x23, struct snd_dm_fm_voice)
+#define SNDRV_DM_FM_IOCTL_SET_PARAMS	_IOW('H', 0x24, struct snd_dm_fm_params)
+#define SNDRV_DM_FM_IOCTL_SET_MODE	_IOW('H', 0x25, int)
+#define SNDRV_DM_FM_IOCTL_SET_CONNECTION	_IOW('H', 0x26, int)
+#define SNDRV_DM_FM_IOCTL_CLEAR_PATCHES	_IO ('H', 0x40)
+
+#define SNDRV_DM_FM_OSS_IOCTL_RESET		0x20
+#define SNDRV_DM_FM_OSS_IOCTL_PLAY_NOTE		0x21
+#define SNDRV_DM_FM_OSS_IOCTL_SET_VOICE		0x22
+#define SNDRV_DM_FM_OSS_IOCTL_SET_PARAMS	0x23
+#define SNDRV_DM_FM_OSS_IOCTL_SET_MODE		0x24
+#define SNDRV_DM_FM_OSS_IOCTL_SET_OPL		0x25
+
+
+#define FM_KEY_SBI	"SBI\032"
+#define FM_KEY_2OP	"2OP\032"
+#define FM_KEY_4OP	"4OP\032"
+
+struct sbi_patch {
+	unsigned char prog;
+	unsigned char bank;
+	char key[4];
+	char name[25];
+	char extension[7];
+	unsigned char data[32];
+};
+
+#endif 

@@ -1,0 +1,25 @@
+/*
+ *  ncp_fs_i.h
+ *
+ *  Copyright (C) 1995 Volker Lendecke
+ *
+ */
+
+#ifndef _LINUX_NCP_FS_I
+#define _LINUX_NCP_FS_I
+
+struct ncp_inode_info {
+	__le32	dirEntNum;
+	__le32	DosDirNum;
+	__u8	volNumber;
+	__le32	nwattr;
+	struct mutex open_mutex;
+	atomic_t	opened;
+	int	access;
+	int	flags;
+#define NCPI_KLUDGE_SYMLINK	0x0001
+	__u8	file_handle[6];
+	struct inode vfs_inode;
+};
+
+#endif	

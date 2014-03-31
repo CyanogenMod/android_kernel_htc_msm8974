@@ -1,0 +1,109 @@
+/*
+ * Copyright (c) 2003-2007 Network Appliance, Inc. All rights reserved.
+ *
+ * This software is available to you under a choice of one of two
+ * licenses.  You may choose to be licensed under the terms of the GNU
+ * General Public License (GPL) Version 2, available from the file
+ * COPYING in the main directory of this source tree, or the BSD-type
+ * license below:
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *      Redistributions of source code must retain the above copyright
+ *      notice, this list of conditions and the following disclaimer.
+ *
+ *      Redistributions in binary form must reproduce the above
+ *      copyright notice, this list of conditions and the following
+ *      disclaimer in the documentation and/or other materials provided
+ *      with the distribution.
+ *
+ *      Neither the name of the Network Appliance, Inc. nor the names of
+ *      its contributors may be used to endorse or promote products
+ *      derived from this software without specific prior written
+ *      permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#ifndef _LINUX_SUNRPC_RPC_RDMA_H
+#define _LINUX_SUNRPC_RPC_RDMA_H
+
+#include <linux/types.h>
+
+struct rpcrdma_segment {
+	__be32 rs_handle;	
+	__be32 rs_length;	
+	__be64 rs_offset;	
+};
+
+struct rpcrdma_read_chunk {
+	__be32 rc_discrim;	
+	__be32 rc_position;	
+	struct rpcrdma_segment rc_target;
+};
+
+struct rpcrdma_write_chunk {
+	struct rpcrdma_segment wc_target;
+};
+
+struct rpcrdma_write_array {
+	__be32 wc_discrim;	
+	__be32 wc_nchunks;	
+	struct rpcrdma_write_chunk wc_array[0];
+};
+
+struct rpcrdma_msg {
+	__be32 rm_xid;	
+	__be32 rm_vers;	
+	__be32 rm_credit;	
+	__be32 rm_type;	
+	union {
+
+		struct {			
+			__be32 rm_empty[3];	
+		} rm_nochunks;
+
+		struct {			
+			__be32 rm_align;	
+			__be32 rm_thresh;	
+			__be32 rm_pempty[3];	
+		} rm_padded;
+
+		__be32 rm_chunks[0];	
+
+	} rm_body;
+};
+
+#define RPCRDMA_HDRLEN_MIN	28
+
+enum rpcrdma_errcode {
+	ERR_VERS = 1,
+	ERR_CHUNK = 2
+};
+
+struct rpcrdma_err_vers {
+	uint32_t rdma_vers_low;	
+	uint32_t rdma_vers_high;
+};
+
+enum rpcrdma_proc {
+	RDMA_MSG = 0,		
+	RDMA_NOMSG = 1,		
+	RDMA_MSGP = 2,		
+	RDMA_DONE = 3,		
+	RDMA_ERROR = 4		
+};
+
+#endif				

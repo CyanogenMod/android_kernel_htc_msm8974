@@ -1,0 +1,9 @@
+
+#ifndef __ASM_ARCH_FRAMEBUFFER_H
+#define __ASM_ARCH_FRAMEBUFFER_H
+
+#define FB_START		0x06000000
+#define FB_SIZE			0x01000000
+
+#endif
+

@@ -1,0 +1,2 @@
+
+#include <plat/hardware.h>

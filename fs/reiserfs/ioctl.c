@@ -1,0 +1,202 @@
+/*
+ * Copyright 2000 by Hans Reiser, licensing governed by reiserfs/README
+ */
+
+#include <linux/capability.h>
+#include <linux/fs.h>
+#include <linux/mount.h>
+#include "reiserfs.h"
+#include <linux/time.h>
+#include <asm/uaccess.h>
+#include <linux/pagemap.h>
+#include <linux/compat.h>
+
+long reiserfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	struct inode *inode = filp->f_path.dentry->d_inode;
+	unsigned int flags;
+	int err = 0;
+
+	reiserfs_write_lock(inode->i_sb);
+
+	switch (cmd) {
+	case REISERFS_IOC_UNPACK:
+		if (S_ISREG(inode->i_mode)) {
+			if (arg)
+				err = reiserfs_unpack(inode, filp);
+		} else
+			err = -ENOTTY;
+		break;
+	case REISERFS_IOC_GETFLAGS:
+		if (!reiserfs_attrs(inode->i_sb)) {
+			err = -ENOTTY;
+			break;
+		}
+
+		flags = REISERFS_I(inode)->i_attrs;
+		i_attrs_to_sd_attrs(inode, (__u16 *) & flags);
+		err = put_user(flags, (int __user *)arg);
+		break;
+	case REISERFS_IOC_SETFLAGS:{
+			if (!reiserfs_attrs(inode->i_sb)) {
+				err = -ENOTTY;
+				break;
+			}
+
+			err = mnt_want_write_file(filp);
+			if (err)
+				break;
+
+			if (!inode_owner_or_capable(inode)) {
+				err = -EPERM;
+				goto setflags_out;
+			}
+			if (get_user(flags, (int __user *)arg)) {
+				err = -EFAULT;
+				goto setflags_out;
+			}
+			if (IS_NOQUOTA(inode)) {
+				err = -EPERM;
+				goto setflags_out;
+			}
+			if (((flags ^ REISERFS_I(inode)->
+			      i_attrs) & (REISERFS_IMMUTABLE_FL |
+					  REISERFS_APPEND_FL))
+			    && !capable(CAP_LINUX_IMMUTABLE)) {
+				err = -EPERM;
+				goto setflags_out;
+			}
+			if ((flags & REISERFS_NOTAIL_FL) &&
+			    S_ISREG(inode->i_mode)) {
+				int result;
+
+				result = reiserfs_unpack(inode, filp);
+				if (result) {
+					err = result;
+					goto setflags_out;
+				}
+			}
+			sd_attrs_to_i_attrs(flags, inode);
+			REISERFS_I(inode)->i_attrs = flags;
+			inode->i_ctime = CURRENT_TIME_SEC;
+			mark_inode_dirty(inode);
+setflags_out:
+			mnt_drop_write_file(filp);
+			break;
+		}
+	case REISERFS_IOC_GETVERSION:
+		err = put_user(inode->i_generation, (int __user *)arg);
+		break;
+	case REISERFS_IOC_SETVERSION:
+		if (!inode_owner_or_capable(inode)) {
+			err = -EPERM;
+			break;
+		}
+		err = mnt_want_write_file(filp);
+		if (err)
+			break;
+		if (get_user(inode->i_generation, (int __user *)arg)) {
+			err = -EFAULT;
+			goto setversion_out;
+		}
+		inode->i_ctime = CURRENT_TIME_SEC;
+		mark_inode_dirty(inode);
+setversion_out:
+		mnt_drop_write_file(filp);
+		break;
+	default:
+		err = -ENOTTY;
+	}
+
+	reiserfs_write_unlock(inode->i_sb);
+
+	return err;
+}
+
+#ifdef CONFIG_COMPAT
+long reiserfs_compat_ioctl(struct file *file, unsigned int cmd,
+				unsigned long arg)
+{
+	
+	switch (cmd) {
+	case REISERFS_IOC32_UNPACK:
+		cmd = REISERFS_IOC_UNPACK;
+		break;
+	case REISERFS_IOC32_GETFLAGS:
+		cmd = REISERFS_IOC_GETFLAGS;
+		break;
+	case REISERFS_IOC32_SETFLAGS:
+		cmd = REISERFS_IOC_SETFLAGS;
+		break;
+	case REISERFS_IOC32_GETVERSION:
+		cmd = REISERFS_IOC_GETVERSION;
+		break;
+	case REISERFS_IOC32_SETVERSION:
+		cmd = REISERFS_IOC_SETVERSION;
+		break;
+	default:
+		return -ENOIOCTLCMD;
+	}
+
+	return reiserfs_ioctl(file, cmd, (unsigned long) compat_ptr(arg));
+}
+#endif
+
+int reiserfs_commit_write(struct file *f, struct page *page,
+			  unsigned from, unsigned to);
+int reiserfs_unpack(struct inode *inode, struct file *filp)
+{
+	int retval = 0;
+	int depth;
+	int index;
+	struct page *page;
+	struct address_space *mapping;
+	unsigned long write_from;
+	unsigned long blocksize = inode->i_sb->s_blocksize;
+
+	if (inode->i_size == 0) {
+		REISERFS_I(inode)->i_flags |= i_nopack_mask;
+		return 0;
+	}
+	
+	if (REISERFS_I(inode)->i_flags & i_nopack_mask) {
+		return 0;
+	}
+
+	depth = reiserfs_write_lock_once(inode->i_sb);
+
+	
+	reiserfs_mutex_lock_safe(&inode->i_mutex, inode->i_sb);
+
+	write_from = inode->i_size & (blocksize - 1);
+	
+	if (write_from == 0) {
+		REISERFS_I(inode)->i_flags |= i_nopack_mask;
+		goto out;
+	}
+
+	index = inode->i_size >> PAGE_CACHE_SHIFT;
+	mapping = inode->i_mapping;
+	page = grab_cache_page(mapping, index);
+	retval = -ENOMEM;
+	if (!page) {
+		goto out;
+	}
+	retval = __reiserfs_write_begin(page, write_from, 0);
+	if (retval)
+		goto out_unlock;
+
+	
+	flush_dcache_page(page);
+	retval = reiserfs_commit_write(NULL, page, write_from, write_from);
+	REISERFS_I(inode)->i_flags |= i_nopack_mask;
+
+      out_unlock:
+	unlock_page(page);
+	page_cache_release(page);
+
+      out:
+	mutex_unlock(&inode->i_mutex);
+	reiserfs_write_unlock_once(inode->i_sb, depth);
+	return retval;
+}

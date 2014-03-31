@@ -1,0 +1,81 @@
+/*
+ *  mxl111sf-tuner.h - driver for the MaxLinear MXL111SF CMOS tuner
+ *
+ *  Copyright (C) 2010 Michael Krufky <mkrufky@kernellabs.com>
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef __MXL111SF_TUNER_H__
+#define __MXL111SF_TUNER_H__
+
+#include "dvb_frontend.h"
+
+#include "mxl111sf.h"
+
+enum mxl_if_freq {
+#if 0
+	MXL_IF_LO    = 0x00, 
+#endif
+	MXL_IF_4_0   = 0x01, 
+	MXL_IF_4_5   = 0x02, 
+	MXL_IF_4_57  = 0x03, 
+	MXL_IF_5_0   = 0x04, 
+	MXL_IF_5_38  = 0x05, 
+	MXL_IF_6_0   = 0x06, 
+	MXL_IF_6_28  = 0x07, 
+	MXL_IF_7_2   = 0x08, 
+	MXL_IF_35_25 = 0x09, 
+	MXL_IF_36    = 0x0a, 
+	MXL_IF_36_15 = 0x0b, 
+	MXL_IF_44    = 0x0c, 
+#if 0
+	MXL_IF_HI    = 0x0f, 
+#endif
+};
+
+struct mxl111sf_tuner_config {
+	enum mxl_if_freq if_freq;
+	unsigned int invert_spectrum:1;
+
+	int (*read_reg)(struct mxl111sf_state *state, u8 addr, u8 *data);
+	int (*write_reg)(struct mxl111sf_state *state, u8 addr, u8 data);
+	int (*program_regs)(struct mxl111sf_state *state,
+			    struct mxl111sf_reg_ctrl_info *ctrl_reg_info);
+	int (*top_master_ctrl)(struct mxl111sf_state *state, int onoff);
+	int (*ant_hunt)(struct dvb_frontend *fe);
+};
+
+
+#if defined(CONFIG_DVB_USB_MXL111SF) || \
+	(defined(CONFIG_DVB_USB_MXL111SF_MODULE) && defined(MODULE))
+extern
+struct dvb_frontend *mxl111sf_tuner_attach(struct dvb_frontend *fe,
+					   struct mxl111sf_state *mxl_state,
+					   struct mxl111sf_tuner_config *cfg);
+#else
+static inline
+struct dvb_frontend *mxl111sf_tuner_attach(struct dvb_frontend *fe,
+					   struct mxl111sf_state *mxl_state
+					   struct mxl111sf_tuner_config *cfg)
+{
+	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
+	return NULL;
+}
+#endif
+
+#endif 
+
+
