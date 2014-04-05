@@ -3198,6 +3198,18 @@ config MACH_M8
         help
           Support for HTC MSM8974 M8
 
+config MACH_M8_WHL
+        depends on ARCH_MSM8974
+        bool "MSM8974 M8_WHL"
+        help
+          Support for HTC MSM8974 M8_WHL
+
+config MACH_M8_WL
+        depends on ARCH_MSM8974
+        bool "MSM8974 M8_WL"
+        help
+          Support for HTC MSM8974 M8_WL
+
 config MACH_NAME
         string "Macine Name"
         default ""
