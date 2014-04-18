@@ -1470,7 +1470,7 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	int			ret;
 
 	is_on = !!is_on;
-	printk(KERN_INFO "[USB] %s %d\n",__func__,is_on);
+	printk(KERN_DEBUG "[USB] %s %d\n",__func__,is_on);
 
 	if (is_on)
 		enable_irq(g_irq);
@@ -1507,7 +1507,7 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *_gadget, int is_active)
 	struct dwc3 *dwc = gadget_to_dwc(_gadget);
 	unsigned long flags;
 	int ret = 0;
-	printk(KERN_INFO "[USB] %s dwc->dotg %x ,gadge driver %d ,softconnect %d,active %d\n",__func__, (unsigned int)dwc->dotg, (unsigned int)dwc->gadget_driver,dwc->softconnect,is_active);
+	printk(KERN_DEBUG "[USB] %s dwc->dotg %x ,gadge driver %d ,softconnect %d,active %d\n",__func__, (unsigned int)dwc->dotg, (unsigned int)dwc->gadget_driver,dwc->softconnect,is_active);
 	if (!dwc->dotg)
 		return -EPERM;
 
@@ -2236,26 +2236,26 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 		dwc3_gadget_ep0_desc.wMaxPacketSize = cpu_to_le16(512);
 		dwc->gadget.ep0->maxpacket = 512;
 		dwc->gadget.speed = USB_SPEED_SUPER;
-		printk(KERN_INFO "[USB] USB_SPEED_SUPER\n");
+		printk(KERN_DEBUG "[USB] USB_SPEED_SUPER\n");
 		break;
 	case DWC3_DCFG_HIGHSPEED:
 		dwc3_gadget_ep0_desc.wMaxPacketSize = cpu_to_le16(64);
 		dwc->gadget.ep0->maxpacket = 64;
 		dwc->gadget.speed = USB_SPEED_HIGH;
-		printk(KERN_INFO "[USB] USB_SPEED_HIGH\n");
+		printk(KERN_DEBUG "[USB] USB_SPEED_HIGH\n");
 		break;
 	case DWC3_DCFG_FULLSPEED2:
 	case DWC3_DCFG_FULLSPEED1:
 		dwc3_gadget_ep0_desc.wMaxPacketSize = cpu_to_le16(64);
 		dwc->gadget.ep0->maxpacket = 64;
 		dwc->gadget.speed = USB_SPEED_FULL;
-		printk(KERN_INFO "[USB] USB_SPEED_FULL\n");
+		printk(KERN_DEBUG "[USB] USB_SPEED_FULL\n");
 		break;
 	case DWC3_DCFG_LOWSPEED:
 		dwc3_gadget_ep0_desc.wMaxPacketSize = cpu_to_le16(8);
 		dwc->gadget.ep0->maxpacket = 8;
 		dwc->gadget.speed = USB_SPEED_LOW;
-		printk(KERN_INFO "[USB] USB_SPEED_LOW\n");
+		printk(KERN_DEBUG "[USB] USB_SPEED_LOW\n");
 		break;
 	}
 
@@ -2325,12 +2325,12 @@ static void dwc3_gadget_linksts_change_interrupt(struct dwc3 *dwc,
 
 	if (next == DWC3_LINK_STATE_U0) {
 		if (dwc->link_state == DWC3_LINK_STATE_U3) {
-			printk(KERN_INFO "[USB] gadget irq resume\n");
+			printk(KERN_DEBUG "[USB] gadget irq resume\n");
 			dbg_event(0xFF, "RESUME", 0);
 			dwc->gadget_driver->resume(&dwc->gadget);
 		}
 	} else if (next == DWC3_LINK_STATE_U3) {
-		printk(KERN_INFO "[USB] gadget irq suspend\n");
+		printk(KERN_DEBUG "[USB] gadget irq suspend\n");
 		dbg_event(0xFF, "SUSPEND", 0);
 		dwc->gadget_driver->suspend(&dwc->gadget);
 	}
@@ -2372,11 +2372,11 @@ static void dwc3_gadget_interrupt(struct dwc3 *dwc,
 	switch (event->type) {
 	case DWC3_DEVICE_EVENT_DISCONNECT:
 		dwc3_gadget_disconnect_interrupt(dwc);
-		printk(KERN_INFO "[USB] gadget irq disconnect\n");
+		printk(KERN_DEBUG "[USB] gadget irq disconnect\n");
 		break;
 	case DWC3_DEVICE_EVENT_RESET:
 		dwc3_gadget_reset_interrupt(dwc);
-		printk(KERN_INFO "[USB] gadget irq reset\n");
+		printk(KERN_DEBUG "[USB] gadget irq reset\n");
 		break;
 	case DWC3_DEVICE_EVENT_CONNECT_DONE:
 		dwc3_gadget_conndone_interrupt(dwc);
