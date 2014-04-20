@@ -185,7 +185,7 @@ limSearchAndDeleteDialogueToken(tpAniSirGlobal pMac, tANI_U8 token, tANI_U16 ass
         //if the node being deleted is the last one then we also need to move the tail pointer to the prevNode.
         if(NULL == pCurrNode->next)
               pMac->lim.pDialogueTokenTail = pPrevNode;
-        palFreeMemory(pMac->hHdd, (void *) pCurrNode);
+        vos_mem_free(pCurrNode);
         return eSIR_SUCCESS;
     }
 
@@ -690,6 +690,12 @@ char *limMsgStr(tANI_U32 msgType)
             return "eWNI_PMC_EXIT_BMPS_IND";
         case eWNI_SME_SET_BCN_FILTER_REQ:
             return "eWNI_SME_SET_BCN_FILTER_REQ";
+#if defined(FEATURE_WLAN_CCX) && defined(FEATURE_WLAN_CCX_UPLOAD)
+        case eWNI_SME_GET_TSM_STATS_REQ:
+            return "eWNI_SME_GET_TSM_STATS_REQ";
+        case eWNI_SME_GET_TSM_STATS_RSP:
+            return "eWNI_SME_GET_TSM_STATS_RSP";
+#endif /* FEATURE_WLAN_CCX && FEATURE_WLAN_CCX_UPLOAD */
         default:
             return "INVALID SME message";
     }
@@ -1086,11 +1092,11 @@ limCleanupMlm(tpAniSirGlobal pMac)
         tx_timer_deactivate(&pMac->lim.limTimers.gLimRemainOnChannelTimer);
         tx_timer_delete(&pMac->lim.limTimers.gLimRemainOnChannelTimer);
 
-#ifdef FEATURE_WLAN_CCX
+#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
         // Deactivate and delete TSM
         tx_timer_deactivate(&pMac->lim.limTimers.gLimCcxTsmTimer);
         tx_timer_delete(&pMac->lim.limTimers.gLimCcxTsmTimer);
-#endif
+#endif /* FEATURE_WLAN_CCX && !FEATURE_WLAN_CCX_UPLOAD */
 
         tx_timer_deactivate(&pMac->lim.limTimers.gLimDisassocAckTimer);
         tx_timer_delete(&pMac->lim.limTimers.gLimDisassocAckTimer);
@@ -5733,22 +5739,17 @@ void limDelAllBASessions(tpAniSirGlobal pMac)
 \return None
 -------------------------------------------------------------*/
 
-void limDelAllBASessionsBtc(tpAniSirGlobal pMac)
+void limDelPerBssBASessionsBtc(tpAniSirGlobal pMac)
 {
-    tANI_U32 i;
+    tANI_U8 sessionId;
     tpPESession pSessionEntry;
-
-    for (i = 0; i < pMac->lim.maxBssId; i++)
+    pSessionEntry = peFindSessionByBssid(pMac,pMac->btc.btcBssfordisableaggr,
+                                                                &sessionId);
+    if (pSessionEntry)
     {
-        pSessionEntry = peFindSessionBySessionId(pMac, i);
-        if (pSessionEntry)
-        {
-            if (SIR_BAND_2_4_GHZ ==
-                limGetRFBand(pSessionEntry->currentOperChannel))
-            {
-                limDeleteBASessions(pMac, pSessionEntry, BA_RECIPIENT);
-            }
-        }
+        PELOGW(limLog(pMac, LOGW,
+        "Deleting the BA for session %d as host got BTC event", sessionId);)
+        limDeleteBASessions(pMac, pSessionEntry, BA_RECIPIENT);
     }
 }
 

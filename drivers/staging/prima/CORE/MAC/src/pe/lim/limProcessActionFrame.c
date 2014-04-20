@@ -71,7 +71,7 @@
 #endif
 #include "limSessionUtils.h"
 
-#if defined FEATURE_WLAN_CCX
+#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
 #include "ccxApi.h"
 #endif
 #include "wlan_qct_wda.h"
@@ -592,7 +592,12 @@ __limProcessAddTsRsp(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession pse
         psessionEntry->ccxContext.tsm.tid = addts.tspec.tsinfo.traffic.userPrio;
         vos_mem_copy(&psessionEntry->ccxContext.tsm.tsmInfo,
                                          &addts.tsmIE,sizeof(tSirMacCCXTSMIE));
+#ifdef FEATURE_WLAN_CCX_UPLOAD
+        limSendSmeTsmIEInd(pMac, psessionEntry, addts.tsmIE.tsid,
+                           addts.tsmIE.state, addts.tsmIE.msmt_interval);
+#else
         limActivateTSMStatsTimer(pMac, psessionEntry);
+#endif /* FEATURE_WLAN_CCX_UPLOAD */
     }
 #endif
     /* Since AddTS response was successful, check for the PSB flag
@@ -851,7 +856,11 @@ __limProcessDelTsReq(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession pse
     PELOG1(limLog(pMac, LOG1, FL("DeleteTS succeeded"));)
 
 #ifdef FEATURE_WLAN_CCX
+#ifdef FEATURE_WLAN_CCX_UPLOAD
+    limSendSmeTsmIEInd(pMac, psessionEntry, 0, 0, 0);
+#else
     limDeactivateAndChangeTimer(pMac,eLIM_TSM_TIMER);
+#endif /* FEATURE_WLAN_CCX_UPLOAD */
 #endif
 
 }
@@ -2110,7 +2119,8 @@ limProcessActionFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
               if ((eLIM_STA_ROLE == psessionEntry->limSystemRole) &&
                   (VOS_TRUE == vos_mem_compare(psessionEntry->selfMacAddr,
                     &pHdr->da[0], sizeof(tSirMacAddr))) &&
-                   vos_mem_compare(pVendorSpecific->Oui, Oui, 3))
+                    IS_WES_MODE_ENABLED(pMac) &&
+                    vos_mem_compare(pVendorSpecific->Oui, Oui, 3))
               {
                   PELOGE( limLog( pMac, LOGW, FL("Received Vendor specific action frame, OUI %x %x %x"),
                          pVendorSpecific->Oui[0], pVendorSpecific->Oui[1], pVendorSpecific->Oui[2]);)
@@ -2123,8 +2133,9 @@ limProcessActionFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
               else
               {
                  limLog( pMac, LOGE, FL("Dropping the vendor specific action frame because of( "
-                                        "OUI mismatch (%02x %02x %02x) or "
+                                        "WES Mode not enabled (WESMODE = %d) or OUI mismatch (%02x %02x %02x) or "
                                         "not received with SelfSta Mac address) system role = %d"),
+                                        IS_WES_MODE_ENABLED(pMac),
                                         pVendorSpecific->Oui[0], pVendorSpecific->Oui[1],
                                         pVendorSpecific->Oui[2],
                                         psessionEntry->limSystemRole );

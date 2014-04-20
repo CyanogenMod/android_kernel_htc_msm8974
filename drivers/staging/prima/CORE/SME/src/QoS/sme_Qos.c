@@ -64,7 +64,7 @@
 #include "smsDebug.h"
 #include "utilsParser.h"
 #endif
-#ifdef FEATURE_WLAN_CCX
+#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
 #include <csrCcx.h>
 #endif
 
@@ -2491,7 +2491,7 @@ sme_QosStatusType sme_QosInternalReleaseReq(tpAniSirGlobal pMac,
       {
          // this is the only flow aggregated in this TSPEC
          status = SME_QOS_STATUS_RELEASE_SUCCESS_RSP;
-#ifdef FEATURE_WLAN_CCX
+#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
          if (ac == SME_QOS_EDCA_AC_VO)
          {
             // Indicate to neighbor roam logic of the new required VO
@@ -3788,6 +3788,14 @@ eHalStatus sme_QosAddTsReq(tpAniSirGlobal pMac,
              "%s: %d: invoked on session %d for AC %d",
              __func__, __LINE__,
              sessionId, ac);
+   if (sessionId >= CSR_ROAM_SESSION_MAX)
+   {
+      //err msg
+      VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+                "%s: %d: sessionId(%d) is invalid",
+                __func__, __LINE__, sessionId);
+      return eHAL_STATUS_FAILURE;
+   }
    pSession = &sme_QosCb.sessionInfo[sessionId];
    pMsg = (tSirAddtsReq *)vos_mem_malloc(sizeof(tSirAddtsReq));
    if (!pMsg)
@@ -5473,7 +5481,7 @@ eHalStatus sme_QosProcessAddTsSuccessRsp(tpAniSirGlobal pMac,
    }
    WLAN_VOS_DIAG_LOG_REPORT(log_ptr);
 #endif //FEATURE_WLAN_DIAG_SUPPORT
-#ifdef FEATURE_WLAN_CCX
+#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
    if (ac == SME_QOS_EDCA_AC_VO)
    {
       // Indicate to neighbor roam logic of the new required VO

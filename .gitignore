@@ -57,6 +57,11 @@ modules.builtin
 !.mailmap
 
 #
+# wifi firmware file we dont want to ignore.
+#
+!WCNSS_qcom_wlan_nv.bin
+
+#
 # Generated include files
 #
 include/config
