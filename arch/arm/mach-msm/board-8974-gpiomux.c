@@ -660,6 +660,7 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_i2c_config,
 		},
 	},
+#if defined(CONFIG_KS8851) || defined(CONFIG_KS8851_MODULE)
 	{
 		.gpio      = 53,		
 		.settings = {
@@ -688,6 +689,7 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[0],
 		},
 	},
+#endif
 };
 
 static struct msm_gpiomux_config msm8974_slimbus_config[] __initdata = {
