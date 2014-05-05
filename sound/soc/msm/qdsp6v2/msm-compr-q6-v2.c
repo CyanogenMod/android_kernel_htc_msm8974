@@ -42,10 +42,6 @@
 #include <linux/wakelock.h>
 #include <mach/htc_acoustic_alsa.h>
 #include "audio_acdb.h"
-#undef pr_info
-#undef pr_err
-#define pr_info(fmt, ...) pr_aud_info(fmt, ##__VA_ARGS__)
-#define pr_err(fmt, ...) pr_aud_err(fmt, ##__VA_ARGS__)
 
 #define COMPRE_CAPTURE_NUM_PERIODS	16
 #define COMPRE_CAPTURE_HEADER_SIZE	(sizeof(struct snd_compr_audio_info))

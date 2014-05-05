@@ -25,11 +25,6 @@
 #include <sound/q6afe-v2.h>
 
 #include "audio_acdb.h"
-#undef pr_info
-#undef pr_err
-#define pr_info(fmt, ...) pr_aud_info(fmt, ##__VA_ARGS__)
-#define pr_err(fmt, ...) pr_aud_err(fmt, ##__VA_ARGS__)
-
 
 #define TIMEOUT_MS 1000
 
