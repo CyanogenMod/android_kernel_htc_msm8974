@@ -164,6 +164,7 @@ static DEFINE_SPINLOCK(reg_spinlock);
 #define WCNSS_MIN_CMD_LEN		(3)
 #define WCNSS_MIN_SERIAL_LEN		(6)
 
+/* control messages from userspace */
 #define WCNSS_USR_CTRL_MSG_START  0x00000000
 #define WCNSS_USR_SERIAL_NUM      (WCNSS_USR_CTRL_MSG_START + 1)
 #define WCNSS_USR_HAS_CAL_DATA    (WCNSS_USR_CTRL_MSG_START + 2)

@@ -13,6 +13,9 @@
 #include <linux/export.h>
 #include <linux/qcomwlan_secif.h>
 
+/*
+ * APIs for calling crypto routines from kernel
+ */
 struct crypto_ahash *wcnss_wlan_crypto_alloc_ahash(const char *alg_name,
 							 u32 type, u32 mask)
 {

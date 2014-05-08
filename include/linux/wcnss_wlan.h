@@ -89,7 +89,8 @@ static inline void wcnss_log_debug_regs_on_bite(void)
 
 #define wcnss_wlan_get_drvdata(dev) dev_get_drvdata(dev)
 #define wcnss_wlan_set_drvdata(dev, data) dev_set_drvdata((dev), (data))
+/* WLAN driver uses these names */
 #define req_riva_power_on_lock(name) wcnss_req_power_on_lock(name)
 #define free_riva_power_on_lock(name) wcnss_free_power_on_lock(name)
 
-#endif 
+#endif /* _WCNSS_WLAN_H_ */
