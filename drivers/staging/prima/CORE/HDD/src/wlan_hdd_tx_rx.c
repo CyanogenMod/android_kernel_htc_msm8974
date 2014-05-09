@@ -181,8 +181,6 @@ static VOS_STATUS hdd_flush_tx_queues( hdd_adapter_t *pAdapter )
    skb_list_node_t *pktNode = NULL;
    struct sk_buff *skb = NULL;
 
-   pAdapter->isVosLowResource = VOS_FALSE;
-
    while (++i != NUM_TX_QUEUES) 
    {
       //Free up any packets in the Tx queue
@@ -549,7 +547,7 @@ int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
    ++pAdapter->hdd_stats.hddTxRxStats.txXmitCalled;
 
    if (unlikely(netif_queue_stopped(dev))) {
-       VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_WARN,
+       VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
                   "%s is called when netif TX is disabled", __func__);
        return NETDEV_TX_BUSY;
    }
@@ -622,22 +620,6 @@ int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
       txSuspended = VOS_TRUE;
    }
 
-   /* If 3/4th of the max queue size is used then enable the flag.
-    * This flag indicates to place the DHCP packets in VOICE AC queue.*/
-   if (WLANTL_AC_BE == ac)
-   {
-      if (pAdapter->wmm_tx_queue[ac].count >= HDD_TX_QUEUE_LOW_WATER_MARK)
-      {
-          VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                     "%s: Best Effort AC Tx queue is 3/4th full", __func__);
-          pAdapter->isVosLowResource = VOS_TRUE;
-      }
-      else
-      {
-          pAdapter->isVosLowResource = VOS_FALSE;
-      }
-   }
-
    spin_unlock(&pAdapter->wmm_tx_queue[ac].lock);
    if (VOS_TRUE == txSuspended)
    {
@@ -678,25 +660,15 @@ int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
    ++pAdapter->hdd_stats.hddTxRxStats.txXmitQueuedAC[ac];
    ++pAdapter->hdd_stats.hddTxRxStats.pkt_tx_count;
 
-   if (HDD_PSB_CHANGED == pAdapter->psbChanged)
-   {
-      /* Function which will determine acquire admittance for a
-       * WMM AC is required or not based on psb configuration done
-       * in the framework
-       */
-       hdd_wmm_acquire_access_required(pAdapter, ac);
-   }
-
    //Make sure we have access to this access category
-   if (((pAdapter->psbChanged & (1 << ac)) && likely(pAdapter->hddWmmStatus.wmmAcStatus[ac].wmmAcAccessAllowed)) ||
-           (pHddStaCtx->conn_info.uIsAuthenticated == VOS_FALSE))
+   if (likely(pAdapter->hddWmmStatus.wmmAcStatus[ac].wmmAcAccessAllowed) ||
+           ( pHddStaCtx->conn_info.uIsAuthenticated == VOS_FALSE))
    {
       granted = VOS_TRUE;
    }
    else
    {
       status = hdd_wmm_acquire_access( pAdapter, ac, &granted );
-      pAdapter->psbChanged |= (1 << ac);
    }
    if ( granted && ( pktListSize == 1 ))
    {
@@ -802,7 +774,6 @@ VOS_STATUS hdd_init_tx_rx( hdd_adapter_t *pAdapter )
    v_SINT_t i = -1;
 
    pAdapter->isVosOutOfResource = VOS_FALSE;
-   pAdapter->isVosLowResource = VOS_FALSE;
 
    //vos_mem_zero(&pAdapter->stats, sizeof(struct net_device_stats));
    //Will be zeroed out during alloc
@@ -1030,7 +1001,7 @@ VOS_STATUS hdd_tx_fetch_packet_cbk( v_VOID_t *vosContext,
    }
  
    pAdapter = pHddCtx->sta_to_adapter[*pStaId];
-   if ((NULL == pAdapter) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic))
+   if( NULL == pAdapter )
    {
       VOS_ASSERT(0);
       return VOS_STATUS_E_FAILURE;

@@ -67,6 +67,9 @@
 #include "rrmApi.h"
 #endif
 
+#ifdef FEATURE_WLAN_CCX
+#include <limCcxparserApi.h>
+#endif
 #include "wlan_qct_wda.h"
 #ifdef WLAN_FEATURE_11W
 #include "dot11fdefs.h"
@@ -2189,6 +2192,12 @@ limSendAssocReqMgmtFrame(tpAniSirGlobal   pMac,
 #endif
 
 #ifdef FEATURE_WLAN_CCX
+    /* CCX Version IE will be included in association request
+       when CCX is enabled on DUT through ini */
+    if (psessionEntry->pLimJoinReq->isCCXFeatureIniEnabled)
+    {
+        PopulateDot11fCCXVersion(&pFrm->CCXVersion);
+    }
     /* For CCX Associations fill the CCX IEs */
     if (psessionEntry->isCCXconnection &&
         psessionEntry->pLimJoinReq->isCCXFeatureIniEnabled)
@@ -2196,7 +2205,6 @@ limSendAssocReqMgmtFrame(tpAniSirGlobal   pMac,
 #ifndef FEATURE_DISABLE_RM
         PopulateDot11fCCXRadMgmtCap(&pFrm->CCXRadMgmtCap);
 #endif
-        PopulateDot11fCCXVersion(&pFrm->CCXVersion);
     }
 #endif
 
@@ -2520,6 +2528,12 @@ limSendReassocReqWithFTIEsMgmtFrame(tpAniSirGlobal     pMac,
     }
 
 #ifdef FEATURE_WLAN_CCX
+    /* CCX Version IE will be included in reassociation request
+       when CCX is enabled on DUT through ini */
+    if (psessionEntry->pLimReAssocReq->isCCXFeatureIniEnabled)
+    {
+        PopulateDot11fCCXVersion(&frm.CCXVersion);
+    }
     // For CCX Associations fill the CCX IEs
     if (psessionEntry->isCCXconnection &&
         psessionEntry->pLimReAssocReq->isCCXFeatureIniEnabled)
@@ -2527,7 +2541,6 @@ limSendReassocReqWithFTIEsMgmtFrame(tpAniSirGlobal     pMac,
 #ifndef FEATURE_DISABLE_RM
         PopulateDot11fCCXRadMgmtCap(&frm.CCXRadMgmtCap);
 #endif
-        PopulateDot11fCCXVersion(&frm.CCXVersion);
     }
 #endif //FEATURE_WLAN_CCX
 #endif //FEATURE_WLAN_CCX || FEATURE_WLAN_LFR
@@ -5072,16 +5085,7 @@ tSirRetStatus limSendAddBARsp( tpAniSirGlobal pMac,
       frmAddBARsp.AddBAParameterSet.tid = pMlmAddBARsp->baTID;
       frmAddBARsp.AddBAParameterSet.policy = pMlmAddBARsp->baPolicy;
       frmAddBARsp.AddBAParameterSet.bufferSize = pMlmAddBARsp->baBufferSize;
-
-      if(psessionEntry->isAmsduSupportInAMPDU)
-      {
-         frmAddBARsp.AddBAParameterSet.amsduSupported =
-                                          psessionEntry->amsduSupportedInBA;
-      }
-      else
-      {
-         frmAddBARsp.AddBAParameterSet.amsduSupported = 0;
-      }
+      frmAddBARsp.AddBAParameterSet.amsduSupported = psessionEntry->amsduSupportedInBA;
 
       // BA timeout
       // 0 - indicates no BA timeout

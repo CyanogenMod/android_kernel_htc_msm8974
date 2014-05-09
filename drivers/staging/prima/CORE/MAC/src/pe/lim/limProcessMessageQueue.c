@@ -54,7 +54,7 @@
 #if defined WLAN_FEATURE_VOWIFI
 #include "rrmApi.h"
 #endif
-#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
+#if defined FEATURE_WLAN_CCX
 #include "ccxApi.h"
 #endif
 
@@ -69,9 +69,6 @@
 #include "vos_types.h"
 #include "vos_packet.h"
 #include "vos_memory.h"
-
-/* This value corresponds to 500 ms */
-#define MAX_PROBEREQ_TIME 5000
 
 void limLogSessionStates(tpAniSirGlobal pMac);
 
@@ -808,7 +805,7 @@ limHandle80211Frames(tpAniSirGlobal pMac, tpSirMsgQ limMsg, tANI_U8 *pDeferMsg)
                 }
             }
 #endif
-#if defined(FEATURE_WLAN_CCX) && !defined(FEATURE_WLAN_CCX_UPLOAD)
+#ifdef FEATURE_WLAN_CCX
              /* We accept data frame (IAPP frame) only if Session is
               * present and ccx connection is established on that
               * session
@@ -1022,33 +1019,6 @@ void limProcessOemDataRsp(tpAniSirGlobal pMac, tANI_U32* body)
 
 #endif
 
-static tANI_BOOLEAN limAgeOutProbeReq( tpAniSirGlobal pMac, tpSirMsgQ  limMsg,
-                                       vos_pkt_t  *pVosPkt )
-{
-    tANI_U8    *pRxPacketInfo = NULL;
-    tSirMacFrameCtl  fc;
-    tpSirMacMgmtHdr    pHdr=NULL;
-    tANI_BOOLEAN match = VOS_FALSE;
-
-    limGetBDfromRxPacket(pMac, limMsg->bodyptr, (tANI_U32 **)&pRxPacketInfo);
-    pHdr = WDA_GET_RX_MAC_HEADER(pRxPacketInfo);
-    fc = pHdr->fc;
-    if ( fc.subType == SIR_MAC_MGMT_PROBE_REQ )
-    {
-        if(  vos_timer_get_system_ticks() - pVosPkt->timestamp >= MAX_PROBEREQ_TIME )
-        {
-            // drop packet
-           limLog(pMac, LOGE,
-           FL("Dropping Aged Out probe requests. Peer MAC is "MAC_ADDRESS_STR),
-                MAC_ADDR_ARRAY(pHdr->sa));
-
-            vos_pkt_return_packet(pVosPkt);
-            match = VOS_TRUE;
-        }
-    }
-    return match;
-}
-
 
 /**
  * limProcessMessages
@@ -1197,18 +1167,6 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
                     break;
 
                 }
-
-                /*
-                * putting a check for age out probe request frames
-                * such that any probe req more than 0.5 sec old can directly
-                * be dropped. With this, there won't be blocking of MC thread.
-                */
-
-                if( limAgeOutProbeReq ( pMac, &limMsgNew, pVosPkt ))
-                {
-                   break;
-                }
-
 #ifdef FEATURE_WLAN_TDLS_INTERNAL
                 /*
                  * TDLS frames comes as translated frames as well as
@@ -1227,7 +1185,6 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
                 }
                 else
 #endif
-
                 limHandle80211Frames(pMac, &limMsgNew, &deferMsg);
 
                 if ( deferMsg == true )
@@ -1343,9 +1300,6 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
 #if defined WLAN_FEATURE_VOWIFI_11R || defined FEATURE_WLAN_CCX || defined(FEATURE_WLAN_LFR)
         case eWNI_SME_GET_ROAM_RSSI_REQ:
 #endif
-#if defined(FEATURE_WLAN_CCX) && defined(FEATURE_WLAN_CCX_UPLOAD)
-        case eWNI_SME_GET_TSM_STATS_REQ:
-#endif /* FEATURE_WLAN_CCX && FEATURE_WLAN_CCX_UPLOAD */
             // These messages are from HDD
             limProcessNormalHddMsg(pMac, limMsg, false);   //no need to response to hdd
             break;
@@ -1558,16 +1512,10 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
             break;
 #ifdef FEATURE_WLAN_CCX
         case SIR_LIM_CCX_TSM_TIMEOUT:
-#ifndef FEATURE_WLAN_CCX_UPLOAD
             limProcessTsmTimeoutHandler(pMac,limMsg);
-#endif /* FEATURE_WLAN_CCX_UPLOAD */
             break;
         case WDA_TSM_STATS_RSP:
-#ifdef FEATURE_WLAN_CCX_UPLOAD
-            limSendSmePECcxTsmRsp(pMac, (tAniGetTsmStatsRsp *)limMsg->bodyptr);
-#else
             limProcessHalCcxTsmRsp(pMac, limMsg);
-#endif /* FEATURE_WLAN_CCX_UPLOAD */
             break;
 #endif
         case WDA_ADD_TS_RSP:

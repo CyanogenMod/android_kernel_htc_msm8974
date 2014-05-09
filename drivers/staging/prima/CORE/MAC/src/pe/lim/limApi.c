@@ -1739,9 +1739,7 @@ limDetectChangeInApCapabilities(tpAniSirGlobal pMac,
             (SIR_MAC_GET_PRIVACY(apNewCaps.capabilityInfo) !=
              SIR_MAC_GET_PRIVACY(psessionEntry->limCurrentBssCaps))) ||
             (SIR_MAC_GET_SHORT_PREAMBLE(apNewCaps.capabilityInfo) !=
-             SIR_MAC_GET_SHORT_PREAMBLE(psessionEntry->limCurrentBssCaps)) ||
-            (SIR_MAC_GET_QOS(apNewCaps.capabilityInfo) !=
-             SIR_MAC_GET_QOS(psessionEntry->limCurrentBssCaps))
+             SIR_MAC_GET_SHORT_PREAMBLE(psessionEntry->limCurrentBssCaps))
        )
     {
         /* If Hidden SSID and privacy bit is not matching with the current capability,
@@ -1778,9 +1776,7 @@ limDetectChangeInApCapabilities(tpAniSirGlobal pMac,
                     (SIR_MAC_GET_PRIVACY(apNewCaps.capabilityInfo) ==
                      SIR_MAC_GET_PRIVACY(psessionEntry->limCurrentBssCaps))) &&
                     (SIR_MAC_GET_SHORT_PREAMBLE(apNewCaps.capabilityInfo) ==
-                     SIR_MAC_GET_SHORT_PREAMBLE(psessionEntry->limCurrentBssCaps)) &&
-                    (SIR_MAC_GET_QOS(apNewCaps.capabilityInfo) ==
-                     SIR_MAC_GET_QOS(psessionEntry->limCurrentBssCaps))
+                     SIR_MAC_GET_SHORT_PREAMBLE(psessionEntry->limCurrentBssCaps))
                )
             {
                 /* Only for probe response frames the control will come here */
@@ -2046,8 +2042,7 @@ void limHandleMissedBeaconInd(tpAniSirGlobal pMac, tpSirMsgQ pMsg)
          (pMac->pmm.gPmmState == ePMM_STATE_WOWLAN) )
     {
         pMac->pmm.inMissedBeaconScenario = TRUE;
-        PELOGE(limLog(pMac, LOGE,
-              FL("Sending EXIT_BMPS_IND to SME due to Missed beacon from FW"));)
+        PELOG1(limLog(pMac, LOG1, FL("Sending EXIT_BMPS_IND to SME "));)
         limSendExitBmpsInd(pMac, eSME_MISSED_BEACON_IND_RCVD);
     }
 /* ACTIVE_MODE_HB_OFFLOAD */

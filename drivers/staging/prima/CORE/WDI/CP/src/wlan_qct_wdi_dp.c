@@ -611,23 +611,16 @@ WDI_FillTxBd
          * Sanity: Force HW frame translation OFF for mgmt frames.
          --------------------------------------------------------------------*/
          /* apply to both ucast/mcast mgmt frames */
-         /* Probe requests are sent using BD rate */
-         if( ucSubType ==  WDI_MAC_MGMT_PROBE_REQ )
+         if (useStaRateForBcastFrames)
          {
-             pBd->bdRate = WDI_BDRATE_BCMGMT_FRAME;
+             pBd->bdRate = (ucUnicastDst)? WDI_BDRATE_BCMGMT_FRAME : WDI_TXBD_BDRATE_DEFAULT; 
          }
          else
          {
-             if (useStaRateForBcastFrames)
-             {
-                 pBd->bdRate = (ucUnicastDst)? WDI_BDRATE_BCMGMT_FRAME : WDI_TXBD_BDRATE_DEFAULT;
-             }
-             else
-             {
-                 pBd->bdRate = WDI_BDRATE_BCMGMT_FRAME;
-             }
+             pBd->bdRate = WDI_BDRATE_BCMGMT_FRAME;
          }
-         if ( ucTxFlag & WDI_USE_BD_RATE2_FOR_MANAGEMENT_FRAME)
+
+         if ( ucTxFlag & WDI_USE_BD_RATE2_FOR_MANAGEMENT_FRAME) 
          {
            pBd->bdRate = WDI_BDRATE_CTRL_FRAME;
          }

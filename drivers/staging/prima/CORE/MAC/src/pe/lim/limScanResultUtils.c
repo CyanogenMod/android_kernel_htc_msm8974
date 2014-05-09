@@ -139,14 +139,14 @@ limDeactivateMinChannelTimerDuringScan(tpAniSirGlobal pMac)
  * @return None
  */
 #if defined WLAN_FEATURE_VOWIFI
-eHalStatus
+void
 limCollectBssDescription(tpAniSirGlobal pMac,
                          tSirBssDescription *pBssDescr,
                          tpSirProbeRespBeacon pBPR,
                          tANI_U8  *pRxPacketInfo,
                          tANI_U8  fScanning)
 #else
-eHalStatus
+void
 limCollectBssDescription(tpAniSirGlobal pMac,
                          tSirBssDescription *pBssDescr,
                          tpSirProbeRespBeacon pBPR,
@@ -167,17 +167,6 @@ limCollectBssDescription(tpAniSirGlobal pMac,
     pBody = WDA_GET_RX_MPDU_DATA(pRxPacketInfo);
     rfBand = WDA_GET_RX_RFBAND(pRxPacketInfo);
 
-    /**
-     * Drop all the beacons and probe response without P2P IE during P2P search
-     */
-    if (NULL != pMac->lim.gpLimMlmScanReq && pMac->lim.gpLimMlmScanReq->p2pSearch)
-    {
-        if (NULL == limGetP2pIEPtr(pMac, (pBody + SIR_MAC_B_PR_SSID_OFFSET), ieLen))
-        {
-            limLog( pMac, LOG3, MAC_ADDRESS_STR, MAC_ADDR_ARRAY(pHdr->bssId));
-            return eHAL_STATUS_FAILURE;
-        }
-    }
 
     /**
      * Length of BSS desription is without length of
@@ -300,7 +289,7 @@ limCollectBssDescription(tpAniSirGlobal pMac,
         pBssDescr->aniIndicator,
         ieLen );
 
-    return eHAL_STATUS_SUCCESS;
+    return;
 } /*** end limCollectBssDescription() ***/
 
 /**
@@ -515,20 +504,16 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
 
     // In scan state, store scan result.
 #if defined WLAN_FEATURE_VOWIFI
-    status = limCollectBssDescription(pMac, &pBssDescr->bssDescription,
+    limCollectBssDescription(pMac, &pBssDescr->bssDescription,
                              pBPR, pRxPacketInfo, fScanning);
-    if (eHAL_STATUS_SUCCESS != status)
-    {
-        goto last;
-    }
 #else
-    status = limCollectBssDescription(pMac, &pBssDescr->bssDescription,
+    limCollectBssDescription(pMac, &pBssDescr->bssDescription,
                              pBPR, pRxPacketInfo);
-    if (eHAL_STATUS_SUCCESS != status)
-    {
-        goto last;
-    }
 #endif
+    /* Calling dfsChannelList which will convert DFS channel
+     * to Active channel for x secs if this channel is DFS channel */
+    limSetDFSChannelList(pMac, pBssDescr->bssDescription.channelIdSelf,
+                               &pMac->lim.dfschannelList);
     pBssDescr->bssDescription.fProbeRsp = fProbeRsp;
 
     pBssDescr->next = NULL;
@@ -617,12 +602,10 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
         }
     }//(eANI_BOOLEAN_TRUE == fScanning)
 
-last:
     if( eHAL_STATUS_SUCCESS != status )
     {
         vos_mem_free( pBssDescr );
     }
-    return;
 } /****** end limCheckAndAddBssDescription() ******/
 
 
