@@ -10,7 +10,7 @@
  *
  *  v1.2 - make kernel / userspace mode switchable
  *
- *  v1.3 - add a hook in display pannel driver as alternative kernel trigger
+ *  v1.3 - add a hook in display panel driver as alternative kernel trigger
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -172,18 +172,18 @@ void set_power_suspend_state_autosleep_hook(int new_state)
 
 EXPORT_SYMBOL(set_power_suspend_state_autosleep_hook);
 
-void set_power_suspend_state_pannel_hook(int new_state)
+void set_power_suspend_state_panel_hook(int new_state)
 {
 #ifdef POWER_SUSPEND_DEBUG
-	pr_warn("power_suspend: pannel resquests %s.\n",
+	pr_warn("power_suspend: panel resquests %s.\n",
 		new_state == POWER_SUSPEND_ACTIVE ? "sleep" : "wakeup");
 #endif
-	if (mode == POWER_SUSPEND_PANNEL)
-		// Yank555.lu : Only allow pannel hook changes in kernel mode
+	if (mode == POWER_SUSPEND_PANEL)
+		// Yank555.lu : Only allow panel hook changes in kernel mode
 		set_power_suspend_state(new_state);
 }
 
-EXPORT_SYMBOL(set_power_suspend_state_pannel_hook);
+EXPORT_SYMBOL(set_power_suspend_state_panel_hook);
 
 // ------------------------------------------ sysfs interface ------------------------------------------
 
@@ -235,7 +235,7 @@ static ssize_t power_suspend_mode_store(struct kobject *kobj,
 
 	switch (data) {
 		case POWER_SUSPEND_AUTOSLEEP:
-		case POWER_SUSPEND_PANNEL:
+		case POWER_SUSPEND_PANEL:
 		case POWER_SUSPEND_USERSPACE:
 			mode = data;
 			return count;
