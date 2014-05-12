@@ -24,6 +24,7 @@
 #include <sound/q6core.h>
 
 #define TIMEOUT_MS 1000
+#define Q6_READY_TIMEOUT_MS 100
 
 /*
  * AVS bring up in the modem is optimitized for the new
