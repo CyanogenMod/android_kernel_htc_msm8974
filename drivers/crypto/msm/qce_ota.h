@@ -11,6 +11,7 @@
  *
  */
 
+/* Qualcomm Crypto Engine driver OTA APIi */
 
 #ifndef __CRYPTO_MSM_QCE_OTA_H
 #define __CRYPTO_MSM_QCE_OTA_H
@@ -26,4 +27,4 @@ int qce_f8_multi_pkt_req(void *handle, struct qce_f8_multi_pkt_req *req,
 int qce_f9_req(void *handle, struct qce_f9_req *req,
 		void *cookie, qce_comp_func_ptr_t qce_cb);
 
-#endif 
+#endif /* __CRYPTO_MSM_QCE_OTA_H */

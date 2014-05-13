@@ -21,22 +21,27 @@
 		(pce_dev->coh_pmem + ((unsigned char *)x -	\
 		pce_dev->coh_vmem))
 
+/* Sets the adddress of a command list in command pointer list */
 #define QCE_SET_CMD_PTR(x)  \
 		(uint32_t)(DMOV_CMD_ADDR(GET_PHYS_ADDR((unsigned char *)x)))
 
+/* Sets the adddress of the last command list in command pointer list */
 #define SET_LAST_CMD_PTR(x) \
 		((DMOV_CMD_ADDR(x)) | CMD_PTR_LP)
 
+/* Get the adddress of the last command list in command pointer list */
 #define QCE_SET_LAST_CMD_PTR(x) \
 		SET_LAST_CMD_PTR((GET_PHYS_ADDR((unsigned char *)x)))
 
 
+/* MAX Data xfer block size between DM and CE */
 #define MAX_ADM_CE_BLOCK_SIZE  64
 #define ADM_DESC_LENGTH_MASK 0xffff
 #define ADM_DESC_LENGTH(x)  (x & ADM_DESC_LENGTH_MASK)
 
 #define ADM_STATUS_OK 0x80000002
 
+/* QCE max number of descriptor in a descriptor list */
 #define QCE_MAX_NUM_DESC    128
 
 #define CRYPTO_REG_SIZE                 0x4
@@ -46,6 +51,7 @@ struct dmov_desc {
 	uint32_t len;
 };
 
+/* State of DM channel */
 enum qce_chan_st_enum {
 	QCE_CHAN_STATE_IDLE = 0,
 	QCE_CHAN_STATE_IN_PROG = 1,
@@ -53,6 +59,7 @@ enum qce_chan_st_enum {
 	QCE_CHAN_STATE_LAST
 };
 
+/* CE buffers */
 struct ce_reg_buffer_addr {
 
 	unsigned char *reset_buf_64;
@@ -80,6 +87,7 @@ struct ce_reg_buffer_addr {
 	unsigned char *ignore_data;
 };
 
+/* CE buffers */
 struct ce_reg_buffers {
 
 	unsigned char reset_buf_64[64];
@@ -106,6 +114,7 @@ struct ce_reg_buffers {
 	unsigned char pad[2 * MAX_ADM_CE_BLOCK_SIZE];
 };
 
+/* CE Command lists */
 struct ce_cmdlists {
 	dmov_s *get_hw_version;
 	dmov_s *clear_status;
@@ -162,6 +171,7 @@ struct ce_cmdlists {
 	dmov_sg *ce_data_out;
 };
 
+/* Command pointer lists */
 struct ce_cmdptrlists_ops {
 
 	uint32_t probe_ce_hw;
@@ -189,18 +199,22 @@ struct ce_cmdptrlists_ops {
 	uint32_t aead_ce_out;
 };
 
+/* DM data structure with buffers, commandlists & commmand pointer lists */
 struct ce_dm_data {
-	unsigned int chan_ce_in;	
-	unsigned int chan_ce_out;	
+	unsigned int chan_ce_in;	/* ADM channel used for CE input
+					 * and auth result if authentication
+					 * only operation. */
+	unsigned int chan_ce_out;	/* ADM channel used for CE output,
+					 * and icv for esp */
 
-	unsigned int crci_in;		
-	unsigned int crci_out;		
+	unsigned int crci_in;		/* CRCI for CE DM IN Channel   */
+	unsigned int crci_out;		/* CRCI for CE DM OUT Channel   */
 
-	enum qce_chan_st_enum chan_ce_in_state;		
-	enum qce_chan_st_enum chan_ce_out_state;	
+	enum qce_chan_st_enum chan_ce_in_state;		/* chan ce_in state */
+	enum qce_chan_st_enum chan_ce_out_state;	/* chan ce_out state */
 
-	int chan_ce_in_status;				
-	int chan_ce_out_status;				
+	int chan_ce_in_status;				/* chan ce_in status */
+	int chan_ce_out_status;				/* chan ce_out status */
 
 	struct dmov_desc *ce_out_src_desc;
 	struct dmov_desc *ce_out_dst_desc;
@@ -224,4 +238,4 @@ struct ce_dm_data {
 	struct msm_dmov_cmd  *chan_ce_in_cmd;
 	struct msm_dmov_cmd  *chan_ce_out_cmd;
 };
-#endif 
+#endif /* _DRIVERS_CRYPTO_MSM_QCE40_H */

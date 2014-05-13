@@ -126,11 +126,12 @@
 #define CRYPTO_DATA_SHADOW0			0x8000
 #define CRYPTO_DATA_SHADOW8191			0x8FFC
 
-#define CRYPTO_CORE_REV				28	
+/* status reg  */
+#define CRYPTO_CORE_REV				28	/* bit 31-28 */
 #define CRYPTO_CORE_REV_MASK			(0xf << CRYPTO_CORE_REV)
-#define CRYPTO_DOUT_SIZE_AVAIL			22	
+#define CRYPTO_DOUT_SIZE_AVAIL			22	/* bit 24-22 */
 #define CRYPTO_DOUT_SIZE_AVAIL_MASK		(0x7 << CRYPTO_DOUT_SIZE_AVAIL)
-#define CRYPTO_DIN_SIZE_AVAIL			19	
+#define CRYPTO_DIN_SIZE_AVAIL			19	/* bit 21-19 */
 #define CRYPTO_DIN_SIZE_AVAIL_MASK		(0x7 << CRYPTO_DIN_SIZE_AVAIL)
 #define CRYPTO_ACCESS_VIOL			18
 #define CRYPTO_SEG_CHNG_ERR			17
@@ -138,7 +139,7 @@
 #define CRYPTO_DOUT_ERR				15
 #define CRYPTO_DIN_ERR				14
 #define CRYPTO_LOCKED				13
-#define CRYPTO_CRYPTO_STATE			10	
+#define CRYPTO_CRYPTO_STATE			10	/* bit 12-10 */
 #define CRYPTO_CRYPTO_STATE_MASK		(0x7 << CRYPTO_CRYPTO_STATE)
 #define CRYPTO_ENCR_BUSY			9
 #define CRYPTO_AUTH_BUSY			8
@@ -159,11 +160,12 @@
 #define CRYPTO_CRYPTO_STATE_CTXT_CLEARING	6
 #define CRYPTO_CRYPTO_STATE_UNLOCKING		7
 
+/* config reg */
 #define CRYPTO_HIGH_SPD_HASH_EN_N		15
 #define CRYPTO_HIGH_SPD_OUT_EN_N		14
 #define CRYPTO_HIGH_SPD_IN_EN_N			13
 #define CRYPTO_DBG_EN				12
-#define CRYPTO_DBG_SEL				7	
+#define CRYPTO_DBG_SEL				7	/* bit 11:7 */
 #define CRYPTO_DBG_SEL_MASK			(0x1F << CRYPTO_DBG_SEL)
 #define CRYPTO_MASK_DOUT_INTR			6
 #define CRYPTO_MASK_DIN_INTR			5
@@ -173,12 +175,13 @@
 #define CRYPTO_CLK_EN_N				1
 #define CRYPTO_SW_RST				0
 
+/* seg_cfg reg */
 #define CRYPTO_F8_KEYSTREAM_ENABLE		25
 #define CRYPTO_F9_DIRECTION			24
 #define CRYPTO_F8_DIRECTION			23
 #define CRYPTO_USE_HW_KEY			22
 
-#define CRYPTO_CNTR_ALG				20	
+#define CRYPTO_CNTR_ALG				20	/* bit 21-20 */
 #define CRYPTO_CNTR_ALG_MASK			(3 << efine CRYPTO_CNTR_ALG)
 
 #define CRYPTO_CLR_CNTXT			19
@@ -186,22 +189,22 @@
 #define CRYPTO_FIRST				17
 #define CRYPTO_ENCODE				16
 
-#define CRYPTO_AUTH_POS				14	
+#define CRYPTO_AUTH_POS				14	/* bit 15-14 */
 #define CRYPTO_AUTH_POS_MASK			(3 << CRYPTO_AUTH_POS)
 
-#define CRYPTO_AUTH_SIZE			11	
+#define CRYPTO_AUTH_SIZE			11	/* bit 13-11 */
 #define CRYPTO_AUTH_SIZE_MASK			(7 << CRYPTO_AUTH_SIZE)
 
-#define CRYPTO_AUTH_ALG				9	
+#define CRYPTO_AUTH_ALG				9	/* bit 10-9 */
 #define CRYPTO_AUTH_ALG_MASK			(3 << CRYPTO_AUTH_ALG)
 
-#define CRYPTO_ENCR_MODE			6	
+#define CRYPTO_ENCR_MODE			6	/* bit 8-6 */
 #define CRYPTO_ENCR_MODE_MASK			(7 << CRYPTO_ENCR_MODE)
 
-#define CRYPTO_ENCR_KEY_SZ			3	
+#define CRYPTO_ENCR_KEY_SZ			3	/* bit 5-3 */
 #define CRYPTO_ENCR_KEY_SZ_MASK			(7 << CRYPTO_ENCR_KEY_SZ)
 
-#define CRYPTO_ENCR_ALG				0	
+#define CRYPTO_ENCR_ALG				0	/* bit 2-0 */
 #define CRYPTO_ENCR_ALG_MASK			(7 << CRYPTO_ENCR_ALG)
 
 #define CRYPTO_CNTR_ALG_NIST			0
@@ -227,6 +230,7 @@
 
 #define CRYPTO_ENCR_MODE_ECB			0
 #define CRYPTO_ENCR_MODE_CBC			1
+/* only valid when AES */
 #define CRYPTO_ENCR_MODE_CTR			2
 
 
@@ -246,24 +250,29 @@
 #define CRYPTO_ENCR_ALG_C2			3
 #define CRYPTO_ENCR_ALG_F8			4
 
-#define CRYPTO_ENCR_SEG_SIZE			16	
+/* encr_seg_cfg reg */
+#define CRYPTO_ENCR_SEG_SIZE			16	/* bit 31-16  */
 #define CRYPTO_ENCR_SEG_SIZE_MASK		(0xffff << CRYPTO_ENCR_SEG_SIZE)
 
 #define CRYPTO_ENCR_START			0
 #define CRYPTO_ENCR_START_MASK			(0xffff << CRYPTO_ENCR_START)
 
-#define CRYPTO_AUTH_SEG_SIZE			16	
+/* auth_seg_cfg reg */
+#define CRYPTO_AUTH_SEG_SIZE			16	/* bit 31-16  */
 #define CRYPTO_AUTH_SEG_SIZE_MASK		(0xffff << CRYPTO_AUTH_SEG_SIZE)
 
 #define CRYPTO_AUTH_START			0
 #define CRYPTO_AUTH_START_MASK			(0xffff << CRYPTO_AUTH_START)
 
 
+/* seg_size reg */
 #define CRYPTO_SEG_SIZE				0
 #define CRYPTO_SEG_SIZE_MASK			(0xffff << CRYPTO_SEG_SIZE)
 
+/* goproc reg */
 #define CRYPTO_GO				0
 
+/* engines_avail */
 #define CRYPTO_F9_SEL				8
 #define CRYPTO_F8_SEL				7
 #define CRYPTO_HMAC_SEL				6
@@ -272,25 +281,28 @@
 #define CRYPTO_DES_SEL				3
 #define CRYPTO_C2_SEL				2
 
-#define CRYPTO_AES_SEL				0	
+#define CRYPTO_AES_SEL				0	/* bit 1-0 */
 #define CRYPTO_AES_SEL_MASK			(3 <<  CRYPTO_AES_SEL)
 #define CRYPTO_AES_SEL_NO			0
 #define CRYPTO_AES_SEL_SLOW			1
 #define CRYPTO_AES_SEL_FAST			2
 #define CRYPTO_AES_SEL_RESERVED			3
 
-#define CRYPTO_CNTR1_IV1_REG_F8_PKT_CNT		16	
+/*  F8 definition of CRYPTO_CNTR1_IV1_REG  */
+#define CRYPTO_CNTR1_IV1_REG_F8_PKT_CNT		16	/* bit 31 - 16 */
 #define CRYPTO_CNTR1_IV1_REG_F8_PKT_CNT_MASK \
 		(0xffff << CRYPTO_CNTR1_IV1_REG_F8_PKT_CNT)
 
-#define CRYPTO_CNTR1_IV1_REG_F8_BEARER		0	
+#define CRYPTO_CNTR1_IV1_REG_F8_BEARER		0	/* bit 4 - 0 */
 #define CRYPTO_CNTR1_IV1_REG_F8_BEARER_MASK \
 		(0x1f << CRYPTO_CNTR1_IV1_REG_F8_BEARER)
 
-#define CRYPTO_AUTH_IV4_REG_F9_VALID_BIS	0	
+/* F9 definition of CRYPTO_AUTH_IV4_REG */
+#define CRYPTO_AUTH_IV4_REG_F9_VALID_BIS	0	/* bit 2 - 0 */
 #define CRYPTO_AUTH_IV4_REG_F9_VALID_BIS_MASK \
 		(0x7  << CRYPTO_AUTH_IV4_REG_F9_VALID_BIS)
 
+/* misc  */
 #define CRYPTO_AES_RNDKEYS			60
 
-#endif 
+#endif /* _DRIVERS_CRYPTO_MSM_QCRYPTOHW_30_H_ */
