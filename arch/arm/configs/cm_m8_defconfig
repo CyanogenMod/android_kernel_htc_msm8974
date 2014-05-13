@@ -539,7 +539,7 @@ CONFIG_MACH_M8=y
 # CONFIG_MACH_M8_WHL is not set
 # CONFIG_MACH_M8_WL is not set
 CONFIG_MACH_NAME=""
-CONFIG_PERFLOCK=y
+# CONFIG_PERFLOCK is not set
 
 #
 # System MMU
