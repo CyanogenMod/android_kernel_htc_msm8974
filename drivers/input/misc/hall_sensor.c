@@ -30,6 +30,7 @@
 #include <linux/irq.h>
 #include <linux/io.h>
 #include <linux/slab.h>
+#include <linux/switch.h>
 #include <mach/devices_cmdline.h>
 #include <linux/hall_sensor.h>
 
@@ -50,6 +51,10 @@ static int prev_val_n = 0;
 static int prev_val_s = 0;
 static int first_boot_s = 1;
 static int first_boot_n = 1;
+
+static struct switch_dev cover_switch = {
+        .name = "cover",
+};
 
 static void report_cover_event(int pole, int irq, struct ak_hall_data *hl);
 static ssize_t debug_level_set(struct device *dev, struct device_attribute *attr,
@@ -251,6 +256,7 @@ static void report_cover_event(int pole, int irq, struct ak_hall_data *hl)
 		wake_lock_timeout(&hl->wake_lock, (2 * HZ));
 
 		if (prev_val_s != val_s) {
+			switch_set_state(&cover_switch, val_s ? 0 : 1);
 			input_report_key(hl->input_dev, HALL_S_POLE, !val_s);
 			input_sync(hl->input_dev);
 			prev_val_s = val_s;
@@ -352,6 +358,14 @@ static int __devinit hall_sensor_probe(struct platform_device *pdev)
 	}
 
 	hall_cover_sysfs_init();
+
+	if (switch_dev_register(&cover_switch) < 0) {
+		pr_err("fail to register cover switch!\n");
+		return 0;
+	}
+
+	switch_set_state(&cover_switch, hl->gpio_att ? 0 : 1);
+
 	g_hl = hl;
 
 	HL_LOG("------------------");
@@ -379,6 +393,7 @@ static int __devexit hall_sensor_remove(struct platform_device *pdev)
 		input_unregister_device(hl->input_dev);
 		input_free_device(hl->input_dev);
 	}
+	switch_dev_unregister(&cover_switch);
 	wake_lock_destroy(&hl->wake_lock);
 	kfree(g_hl);
 	return 0;
