@@ -357,6 +357,9 @@ struct vss_imemory_cmd_unmap_t {
 
 #define VSS_IRECORD_PORT_ID_DEFAULT			0x0000FFFF
 
+/* Port explicitly identifying TX and RX streams */
+#define VSS_IRECORD_PORT_ID_TX_RX			0x00008003
+
 #define VSS_IRECORD_TAP_POINT_NONE			0x00010F78
 
 #define VSS_IRECORD_TAP_POINT_STREAM_END		0x00010F79
