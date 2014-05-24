@@ -226,7 +226,7 @@ static int keyreset_probe(struct platform_device *pdev)
 	struct keyreset_platform_data *pdata = pdev->dev.platform_data;
 #else
 	uint8_t idx = 0;
-	struct keyreset_platform_data *pdata;
+	struct keyreset_platform_data *pdata = NULL;
 	pr_info("[KEYRESET] ++%s++", __func__);
 #endif
 	if (!board_build_flag()) {

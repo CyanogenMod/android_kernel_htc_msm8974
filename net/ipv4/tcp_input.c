@@ -3424,10 +3424,11 @@ static void tcp_sack_remove(struct tcp_sock *tp)
 		return;
 	}
 
+	BUG_ON(num_sacks > 4);
 	for (this_sack = 0; this_sack < num_sacks;) {
 		
 		if (!before(tp->rcv_nxt, sp->start_seq)) {
-			int i;
+			int i = 0;
 
 			
 			WARN_ON(before(tp->rcv_nxt, sp->end_seq));
