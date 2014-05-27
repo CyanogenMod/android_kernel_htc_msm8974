@@ -31,7 +31,9 @@
 #include <linux/of_batterydata.h>
 #include <mach/devices_dtb.h>
 #include <mach/htc_gauge.h>
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 #include <mach/htc_footprint.h>
+#endif
 #include <linux/interrupt.h>
 #ifdef CONFIG_HTC_BATT_8960
 #include "mach/htc_battery_cell.h"
@@ -1082,14 +1084,13 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 			chip->cc_backup_uah);
 
 		bms_dbg.last_ocv_raw_uv = raw->last_good_ocv_uv;
-
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 		if (read_backup_ocv_uv() > 0
 				&& warm_reset > 0) {
 			chip->cc_backup_uah = read_backup_cc_uah();
 			raw->last_good_ocv_uv = chip->last_ocv_uv = read_backup_ocv_uv();
 		}
-
-		
+#endif
 		if (chip->ocv_backup_uv) {
 			if (chip->ocv_reading_at_100 > 0)
 				chip->last_ocv_uv = chip->max_voltage_uv;
@@ -1157,10 +1158,10 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 		
 		chip->ocv_backup_uv = 0;
 		chip->cc_backup_uah = 0;
-		
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 		write_backup_cc_uah(0);
 		write_backup_ocv_uv(0);
-		
+#endif
 		chip->batt_full_fake_ocv = false;
 	} else if (chip->batt_full_fake_ocv) {
 		chip->batt_full_fake_ocv = false;
@@ -1174,9 +1175,10 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 		
 		store_emmc.store_ocv_uv = chip->last_ocv_uv;
 		store_emmc.store_cc_uah = 0; 
-		
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 		write_backup_cc_uah(chip->cc_backup_uah);
 		write_backup_ocv_uv(chip->last_ocv_uv);
+#endif
 	} else {
 		store_emmc.store_ocv_uv = raw->last_good_ocv_uv = chip->last_ocv_uv;
 	}
@@ -1715,10 +1717,10 @@ static int pm8941_bms_estimate_ocv(void)
 		store_emmc.store_ocv_uv = the_chip->last_ocv_uv = estimated_ocv_uv;
 		the_chip->cc_backup_uah = bms_dbg.ori_cc_uah = calculate_cc(the_chip, raw.cc, CC, NORESET);
 		store_emmc.store_cc_uah = 0; 
-		
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
 		write_backup_cc_uah(the_chip->cc_backup_uah);
 		write_backup_ocv_uv(the_chip->last_ocv_uv);
-		
+#endif
 		htc_batt_bms_timer.no_ocv_update_period_ms = 0;
 		
 		if(the_chip->criteria_sw_est_ocv == FIRST_SW_EST_OCV_THR_MS) {
