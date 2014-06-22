@@ -65,3 +65,8 @@ config MHL_MONITOR_WORKAROUND
 config MDSS_DUMP_MDP_UNDERRUN
 	boolean 'Dump reg when MDP underrun'
 	default n:
+
+config LCD_KCAL
+	depends on FB_MSM_MDSS
+	bool "Enable sysfs for LCD KCAL"
+	default n
