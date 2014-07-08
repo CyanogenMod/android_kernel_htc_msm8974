@@ -1959,6 +1959,10 @@ struct asm_stream_cmd_open_write_v3 {
 
 #define ASM_ABSOLUTEIMESTAMP      1
 
+/* Bit value for Low Latency Tx stream subfield */
+#define ASM_LOW_LATENCY_TX_STREAM_SESSION			1
+
+/* Bit shift for the stream_perf_mode subfield. */
 #define ASM_SHIFT_STREAM_PERF_MODE_FLAG_IN_OPEN_READ              29
 
 struct asm_stream_cmd_open_read_v3 {

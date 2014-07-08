@@ -261,7 +261,7 @@ static void event_handler(uint32_t opcode,
 	}
 	break;
 	case RESET_EVENTS:
-		pr_err("%s RESET_EVENTS\n", __func__);
+		pr_debug("%s RESET_EVENTS\n", __func__);
 		prtd->pcm_irq_pos += prtd->pcm_count;
 		atomic_inc(&prtd->out_count);
 		atomic_inc(&prtd->in_count);
@@ -358,11 +358,19 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *soc_prtd = substream->private_data;
+	struct msm_plat_data *pdata;
 	struct snd_pcm_hw_params *params;
 	struct msm_pcm_routing_evt event;
 	int ret = 0;
 	int i = 0;
 	uint16_t bits_per_sample = 16;
+
+	pdata = (struct msm_plat_data *)
+		dev_get_drvdata(soc_prtd->platform->dev);
+	if (!pdata) {
+		pr_err("%s: platform data not populated\n", __func__);
+		return -EINVAL;
+	}
 
 	pr_debug("%s\n", __func__);
 	if (prtd->enabled == IDLE) {
