@@ -221,7 +221,7 @@ static DEFINE_SPINLOCK(reg_spinlock);
 #define	WCNSS_PM_CONFIG_REQ           (WCNSS_CTRL_MSG_START + 11)
 
 #define WCNSS_MAX_CH_NUM			45
-#define WCNSS_MAX_PIL_RETRY			3
+#define WCNSS_MAX_PIL_RETRY			2
 
 #define VALID_VERSION(version) \
 	((strncmp(version, "INVALID", WCNSS_VERSION_LEN)) ? 1 : 0)
