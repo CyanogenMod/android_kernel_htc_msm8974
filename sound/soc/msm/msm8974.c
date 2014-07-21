@@ -2004,8 +2004,8 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.ignore_suspend = 1,
 	},
 	{
-		.name = "MSM8974 Compr",
-		.stream_name = "COMPR",
+		.name = "MSM8974 Compress1",
+		.stream_name = "Compress1",
 		.cpu_dai_name	= "MultiMedia4",
 		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
@@ -2133,8 +2133,8 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 	},
 	
 	{
-		.name = "MSM8974 Compr2",
-		.stream_name = "COMPR2",
+		.name = "MSM8974 Compress2",
+		.stream_name = "Compress2",
 		.cpu_dai_name	= "MultiMedia6",
 		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
@@ -2150,8 +2150,8 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA6,
 	},
 	{
-		.name = "MSM8974 Compr3",
-		.stream_name = "COMPR3",
+		.name = "MSM8974 Compress3",
+		.stream_name = "Compress3",
 		.cpu_dai_name	= "MultiMedia7",
 		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
