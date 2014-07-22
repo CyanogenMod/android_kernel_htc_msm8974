@@ -108,10 +108,6 @@
 
 #define QPNP_BMS_DEV_NAME "qcom,qpnp-bms"
 
-#define FIRST_SW_EST_OCV_THR_MS	(21600000)	
-#define DEFAULT_SW_EST_OCV_THR_MS (79200000)
-#define DISABLE_SW_OCV_LEVEL_THRESHOLD	30
-
 enum {
 	SHDW_CC,
 	CC
@@ -179,6 +175,7 @@ struct qpnp_bms_chip {
 	bool				done_charging;
 	bool				last_soc_invalid;
 	
+	int				enable_sw_ocv_in_eoc;
 	int				store_batt_data_soc_thre;
 	int 				batt_stored_magic_num;
 	int 				batt_stored_soc;
@@ -395,8 +392,8 @@ static int ocv_update_stop_active_mask = OCV_UPDATE_STOP_BIT_CABLE_IN |
 											OCV_UPDATE_STOP_BIT_BOOT_UP;
 static int ocv_update_stop_reason;
 static int is_ocv_update_start = 0;
+static int is_do_sw_ocv_in_eoc = 0;
 struct mutex ocv_update_lock;
-static int batt_level = 0;
 
 static void disable_ocv_update_with_reason(bool disable, int reason);
 static int discard_backup_fcc_data(struct qpnp_bms_chip *chip);
@@ -425,7 +422,7 @@ static int qpnp_read_wrapper(struct qpnp_bms_chip *chip, u8 *val,
 
 	rc = spmi_ext_register_readl(spmi->ctrl, spmi->sid, base, val, count);
 	if (rc) {
-		pr_debug("SPMI read failed rc=%d\n", rc);
+		pr_err("SPMI read failed rc=%d\n", rc);
 		return rc;
 	}
 	return 0;
@@ -439,7 +436,7 @@ static int qpnp_write_wrapper(struct qpnp_bms_chip *chip, u8 *val,
 
 	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid, base, val, count);
 	if (rc) {
-		pr_debug("SPMI write failed rc=%d\n", rc);
+		pr_err("SPMI write failed rc=%d\n", rc);
 		return rc;
 	}
 	return 0;
@@ -453,14 +450,14 @@ static int qpnp_masked_write_base(struct qpnp_bms_chip *chip, u16 addr,
 
 	rc = qpnp_read_wrapper(chip, &reg, addr, 1);
 	if (rc) {
-		pr_debug("read failed addr = %03X, rc = %d\n", addr, rc);
+		pr_err("read failed addr = %03X, rc = %d\n", addr, rc);
 		return rc;
 	}
 	reg &= ~mask;
 	reg |= val & mask;
 	rc = qpnp_write_wrapper(chip, &reg, addr, 1);
 	if (rc) {
-		pr_debug("write failed addr = %03X, val = %02x, mask = %02x, reg = %02x, rc = %d\n",
+		pr_err("write failed addr = %03X, val = %02x, mask = %02x, reg = %02x, rc = %d\n",
 					addr, val, mask, reg, rc);
 		return rc;
 	}
@@ -519,7 +516,7 @@ static int lock_output_data(struct qpnp_bms_chip *chip)
 	rc = qpnp_masked_write(chip, BMS1_CC_DATA_CTL,
 				HOLD_OREG_DATA, HOLD_OREG_DATA);
 	if (rc) {
-		pr_debug("couldnt lock bms output rc = %d\n", rc);
+		pr_err("couldnt lock bms output rc = %d\n", rc);
 		return rc;
 	}
 	return 0;
@@ -531,7 +528,7 @@ static int unlock_output_data(struct qpnp_bms_chip *chip)
 
 	rc = qpnp_masked_write(chip, BMS1_CC_DATA_CTL, HOLD_OREG_DATA, 0);
 	if (rc) {
-		pr_debug("fail to unlock BMS_CONTROL rc = %d\n", rc);
+		pr_err("fail to unlock BMS_CONTROL rc = %d\n", rc);
 		return rc;
 	}
 	return 0;
@@ -672,7 +669,7 @@ static int read_vsense_avg(struct qpnp_bms_chip *chip, int *result_uv)
 			chip->base + BMS1_VSENSE_AVG_DATA0, 2);
 
 	if (rc) {
-		pr_debug("fail to read VSENSE_AVG rc = %d\n", rc);
+		pr_err("fail to read VSENSE_AVG rc = %d\n", rc);
 		return rc;
 	}
 
@@ -686,7 +683,7 @@ static int get_battery_current(struct qpnp_bms_chip *chip, int *result_ua)
 	int64_t temp_current;
 
 	if (chip->r_sense_uohm == 0) {
-		pr_debug("r_sense is zero\n");
+		pr_err("r_sense is zero\n");
 		return -EINVAL;
 	}
 
@@ -717,7 +714,7 @@ static int get_battery_voltage(struct qpnp_bms_chip *chip, int *result_uv)
 
 	rc = qpnp_vadc_read(chip->vadc_dev, VBAT_SNS, &adc_result);
 	if (rc) {
-		pr_debug("error reading adc channel = %d, rc = %d\n",
+		pr_err("error reading adc channel = %d, rc = %d\n",
 					VBAT_SNS, rc);
 		return rc;
 	}
@@ -755,7 +752,7 @@ static int read_cc_raw(struct qpnp_bms_chip *chip, int64_t *reading,
 		rc = qpnp_read_wrapper(chip, (u8 *)&raw_reading,
 				chip->base + BMS1_CC_DATA0, 5);
 	if (rc) {
-		pr_debug("Error reading cc: rc = %d\n", rc);
+		pr_err("Error reading cc: rc = %d\n", rc);
 		return -ENXIO;
 	}
 
@@ -801,7 +798,7 @@ static void convert_and_store_ocv(struct qpnp_bms_chip *chip,
 			raw->last_good_ocv_raw);
 	rc = calib_vadc(chip);
 	if (rc)
-		pr_debug("Vadc reference voltage read failed, rc = %d\n", rc);
+		pr_err("Vadc reference voltage read failed, rc = %d\n", rc);
 	chip->prev_last_good_ocv_raw = raw->last_good_ocv_raw;
 	raw->last_good_ocv_uv = convert_vbatt_raw_to_uv(chip,
 					raw->last_good_ocv_raw);
@@ -823,7 +820,7 @@ static void reset_cc(struct qpnp_bms_chip *chip, u8 flags)
 				flags,
 				flags);
 	if (rc)
-		pr_debug("cc reset failed: %d\n", rc);
+		pr_err("cc reset failed: %d\n", rc);
 
 	
 	udelay(100);
@@ -831,7 +828,7 @@ static void reset_cc(struct qpnp_bms_chip *chip, u8 flags)
 	rc = qpnp_masked_write(chip, BMS1_CC_CLEAR_CTL,
 				flags, 0);
 	if (rc)
-		pr_debug("cc reenable failed: %d\n", rc);
+		pr_err("cc reenable failed: %d\n", rc);
 	mutex_unlock(&chip->bms_output_lock);
 }
 
@@ -946,12 +943,12 @@ static int get_simultaneous_batt_v_and_i(struct qpnp_bms_chip *chip,
 	if (is_battery_full(chip)) {
 		rc = get_battery_current(chip, ibat_ua);
 		if (rc) {
-			pr_debug("bms current read failed with rc: %d\n", rc);
+			pr_err("bms current read failed with rc: %d\n", rc);
 			return rc;
 		}
 		rc = qpnp_vadc_read(chip->vadc_dev, VBAT_SNS, &v_result);
 		if (rc) {
-			pr_debug("vadc read failed with rc: %d\n", rc);
+			pr_err("vadc read failed with rc: %d\n", rc);
 			return rc;
 		}
 		*vbat_uv = (int)v_result.physical;
@@ -960,7 +957,7 @@ static int get_simultaneous_batt_v_and_i(struct qpnp_bms_chip *chip,
 					iadc_channel, &i_result,
 					VBAT_SNS, &v_result);
 		if (rc) {
-			pr_debug("adc sync read failed with rc: %d\n", rc);
+			pr_err("adc sync read failed with rc: %d\n", rc);
 			return rc;
 		}
 		*ibat_ua = -1 * (int)i_result.result_ua;
@@ -979,7 +976,7 @@ static int estimate_ocv(struct qpnp_bms_chip *chip, int batt_temp)
 	rbatt_mohm = get_rbatt(chip, bms_dbg.soc_rbatt, batt_temp);
 	rc = get_simultaneous_batt_v_and_i(chip, &ibat_ua, &vbat_uv);
 	if (rc) {
-		pr_debug("simultaneous failed rc = %d\n", rc);
+		pr_err("simultaneous failed rc = %d\n", rc);
 		return rc;
 	}
 
@@ -1056,19 +1053,19 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 	rc = qpnp_read_wrapper(chip, (u8 *)&raw->last_good_ocv_raw,
 			chip->base + BMS1_OCV_FOR_SOC_DATA0, 2);
 	if (rc) {
-		pr_debug("Error reading ocv: rc = %d\n", rc);
+		pr_err("Error reading ocv: rc = %d\n", rc);
 		rc = -ENXIO;
 		goto error_handle;
 	}
 
 	rc = read_cc_raw(chip, &raw->cc, CC);
 	if (rc) {
-		pr_debug("Failed to read raw cc data, rc = %d\n", rc);
+		pr_err("Failed to read raw cc data, rc = %d\n", rc);
 		goto error_handle;
 	}
 	rc = read_cc_raw(chip, &raw->shdw_cc, SHDW_CC);
 	if (rc) {
-		pr_debug("Failed to read raw shdw_cc data, rc = %d\n", rc);
+		pr_err("Failed to read raw shdw_cc data, rc = %d\n", rc);
 		goto error_handle;
 	}
 
@@ -1141,15 +1138,6 @@ static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 		convert_and_store_ocv(chip, raw, batt_temp);
 		
 		htc_batt_bms_timer.no_ocv_update_period_ms = 0;
-		if(chip->criteria_sw_est_ocv == FIRST_SW_EST_OCV_THR_MS) {
-			rc = of_property_read_u32(chip->spmi->dev.of_node,
-				"qcom,criteria-sw-est-ocv",
-				&chip->criteria_sw_est_ocv);
-			if (rc) {
-				pr_debug("err:%d, criteria-sw-est-ocv missing in dt, set default value\n", rc);
-				chip->criteria_sw_est_ocv = DEFAULT_SW_EST_OCV_THR_MS;
-			}
-		}
 		
 		chip->last_cc_uah = INT_MIN;
 
@@ -1262,7 +1250,7 @@ static int calculate_cc(struct qpnp_bms_chip *chip, int64_t cc,
 			&chip->software_shdw_cc_uah : &chip->software_cc_uah;
 	rc = qpnp_vadc_read(chip->vadc_dev, DIE_TEMP, &result);
 	if (rc) {
-		pr_debug("could not read pmic die temperature: %d\n", rc);
+		pr_err("could not read pmic die temperature: %d\n", rc);
 		return *software_counter;
 	}
 
@@ -1665,12 +1653,12 @@ static int pm8941_bms_estimate_ocv(void)
 	rc = get_simultaneous_batt_v_and_i(the_chip,
 							&ibatt_ua, &vbat_uv);
 	if (rc) {
-		pr_debug("[EST]simultaneous failed rc = %d\n", rc);
+		pr_err("[EST]simultaneous failed rc = %d\n", rc);
 		return rc;
 	}
 
 	
-	if (ibatt_ua > 60000) {
+	if (ibatt_ua > 60000 && !is_do_sw_ocv_in_eoc) {
 		pr_debug("[EST]ibatt_ua=%d uA exceed 60mA, "
 			       "no_hw_ocv_ms=%lu, return!\n", ibatt_ua,
 				htc_batt_bms_timer.no_ocv_update_period_ms);
@@ -1713,6 +1701,7 @@ static int pm8941_bms_estimate_ocv(void)
 
 	
 	if (estimated_ocv_uv > 0) {
+		is_do_sw_ocv_in_eoc = 0;
 		
 		store_emmc.store_ocv_uv = the_chip->last_ocv_uv = estimated_ocv_uv;
 		the_chip->cc_backup_uah = bms_dbg.ori_cc_uah = calculate_cc(the_chip, raw.cc, CC, NORESET);
@@ -1722,22 +1711,10 @@ static int pm8941_bms_estimate_ocv(void)
 		write_backup_ocv_uv(the_chip->last_ocv_uv);
 #endif
 		htc_batt_bms_timer.no_ocv_update_period_ms = 0;
-		
-		if(the_chip->criteria_sw_est_ocv == FIRST_SW_EST_OCV_THR_MS) {
-			rc = of_property_read_u32(the_chip->spmi->dev.of_node,
-				"qcom,criteria-sw-est-ocv",
-				&the_chip->criteria_sw_est_ocv);
-			if (rc) {
-				pr_debug("err:%d, criteria-sw-est-ocv missing in dt, set default value\n", rc);
-				the_chip->criteria_sw_est_ocv = DEFAULT_SW_EST_OCV_THR_MS;
-			}
-		}
-
 		pr_debug("[EST]last_ocv=%d, ori_cc_uah=%d, backup_cc=%d, "
-			"no_hw_ocv_ms=%ld, criteria_sw_est_ocv=%d\n",
+			"no_hw_ocv_ms=%ld\n",
 			the_chip->last_ocv_uv, bms_dbg.ori_cc_uah, the_chip->cc_backup_uah,
-			htc_batt_bms_timer.no_ocv_update_period_ms,
-			the_chip->criteria_sw_est_ocv);
+			htc_batt_bms_timer.no_ocv_update_period_ms);
 	}
 	return estimated_ocv_uv;
 }
@@ -1750,21 +1727,21 @@ static int get_current_time(unsigned long *now_tm_sec)
 
 	rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
 	if (rtc == NULL) {
-		pr_debug("%s: unable to open rtc device (%s)\n",
+		pr_err("%s: unable to open rtc device (%s)\n",
 			__FILE__, CONFIG_RTC_HCTOSYS_DEVICE);
 		return -EINVAL;
 	}
 
 	rc = rtc_read_time(rtc, &tm);
 	if (rc) {
-		pr_debug("Error reading rtc device (%s) : %d\n",
+		pr_err("Error reading rtc device (%s) : %d\n",
 			CONFIG_RTC_HCTOSYS_DEVICE, rc);
 		goto close_time;
 	}
 
 	rc = rtc_valid_tm(&tm);
 	if (rc) {
-		pr_debug("Invalid RTC time (%s): %d\n",
+		pr_err("Invalid RTC time (%s): %d\n",
 			CONFIG_RTC_HCTOSYS_DEVICE, rc);
 		goto close_time;
 	}
@@ -1788,7 +1765,7 @@ static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
 
 	rc = get_battery_current(chip, &result_ua);
 	if (rc) {
-		pr_debug("failed to get current: %d\n", rc);
+		pr_err("failed to get current: %d\n", rc);
 		return rc;
 	}
 	return result_ua;
@@ -1834,7 +1811,7 @@ static int get_prop_bms_charge_full(struct qpnp_bms_chip *chip)
 
 	rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM, &result);
 	if (rc) {
-		pr_debug("Unable to read battery temperature\n");
+		pr_err("Unable to read battery temperature\n");
 		return rc;
 	}
 
@@ -1849,7 +1826,7 @@ static int calculate_delta_time(unsigned long *time_stamp, int *delta_time_s)
 	*delta_time_s = 0;
 
 	if (get_current_time(&now_tm_sec)) {
-		pr_debug("RTC read failed, delta_s = %d\n", *delta_time_s);
+		pr_err("RTC read failed, delta_s = %d\n", *delta_time_s);
 		return 0;
 	}
 
@@ -1940,7 +1917,7 @@ static int reset_bms_for_test(struct qpnp_bms_chip *chip)
 	int ocv_est_uv;
 
 	if (!chip) {
-		pr_debug("BMS driver has not been initialized yet!\n");
+		pr_err("BMS driver has not been initialized yet!\n");
 		return -EINVAL;
 	}
 
@@ -1971,7 +1948,7 @@ static int bms_reset_set(const char *val, const struct kernel_param *kp)
 
 	rc = param_set_bool(val, kp);
 	if (rc) {
-		pr_debug("Unable to set bms_reset: %d\n", rc);
+		pr_err("Unable to set bms_reset: %d\n", rc);
 		return rc;
 	}
 
@@ -1986,7 +1963,7 @@ static int bms_reset_set(const char *val, const struct kernel_param *kp)
 		rc = reset_bms_for_test(the_chip);
 #endif
 		if (rc) {
-			pr_debug("Unable to modify bms_reset: %d\n", rc);
+			pr_err("Unable to modify bms_reset: %d\n", rc);
 			return rc;
 		}
 	}
@@ -2078,14 +2055,14 @@ static int report_cc_based_soc(struct qpnp_bms_chip *chip)
 	if (rc == 0 && chip->calculated_soc == -EINVAL) {
 		pr_debug("calculate soc timed out\n");
 	} else if (rc == -ERESTARTSYS) {
-		pr_debug("Wait for SoC interrupted.\n");
+		pr_err("Wait for SoC interrupted.\n");
 		return rc;
 	}
 
 	rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM, &result);
 
 	if (rc) {
-		pr_debug("error reading adc channel = %d, rc = %d\n",
+		pr_err("error reading adc channel = %d, rc = %d\n",
 					LR_MUX1_BATT_THERM, rc);
 		return rc;
 	}
@@ -2310,7 +2287,7 @@ static int adjust_soc(struct qpnp_bms_chip *chip, struct soc_params *params,
 
 	rc = get_simultaneous_batt_v_and_i(chip, &ibat_ua, &vbat_uv);
 	if (rc < 0) {
-		pr_debug("simultaneous vbat ibat failed err = %d\n", rc);
+		pr_err("simultaneous vbat ibat failed err = %d\n", rc);
 		goto out;
 	}
 
@@ -2439,13 +2416,13 @@ static int clamp_soc_based_on_voltage(struct qpnp_bms_chip *chip, int soc)
 
 	rc = get_battery_voltage(chip, &vbat_uv);
 	if (rc < 0) {
-		pr_debug("adc vbat failed err = %d\n", rc);
+		pr_err("adc vbat failed err = %d\n", rc);
 		return soc;
 	}
 
 	rc = pm8941_get_batt_temperature(&batt_temp);
 	if (rc) {
-		pr_debug("get temperature failed err = %d\n", rc);
+		pr_err("get temperature failed err = %d\n", rc);
 		return soc;
 	}
 
@@ -2721,7 +2698,7 @@ static int calculate_soc_from_voltage(struct qpnp_bms_chip *chip)
 
 	rc = get_battery_voltage(chip, &vbat_uv);
 	if (rc < 0) {
-		pr_debug("adc vbat failed err = %d\n", rc);
+		pr_err("adc vbat failed err = %d\n", rc);
 		return rc;
 	}
 	voltage_range_uv = chip->max_voltage_uv - chip->v_cutoff_uv;
@@ -2758,7 +2735,7 @@ static int recalculate_raw_soc(struct qpnp_bms_chip *chip)
 		rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM,
 								&result);
 		if (rc) {
-			pr_debug("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
+			pr_err("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
 						LR_MUX1_BATT_THERM, rc);
 			soc = chip->calculated_soc;
 		} else {
@@ -2810,7 +2787,7 @@ static int recalculate_soc(struct qpnp_bms_chip *chip)
 		rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM,
 								&result);
 		if (rc) {
-			pr_debug("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
+			pr_err("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
 						LR_MUX1_BATT_THERM, rc);
 			soc = chip->calculated_soc;
 		} else {
@@ -3010,7 +2987,7 @@ static int reset_vbat_monitoring(struct qpnp_bms_chip *chip)
 	rc = qpnp_adc_tm_channel_measure(chip->adc_tm_dev,
 						&chip->vbat_monitor_params);
 	if (rc) {
-		pr_debug("tm disable failed: %d\n", rc);
+		pr_err("tm disable failed: %d\n", rc);
 		return rc;
 	}
 #if !(defined(CONFIG_HTC_BATT_8960))
@@ -3051,7 +3028,7 @@ static int setup_vbat_monitoring(struct qpnp_bms_chip *chip)
 		rc = qpnp_adc_tm_channel_measure(chip->adc_tm_dev,
 						&chip->vbat_monitor_params);
 		if (rc) {
-			pr_debug("tm setup failed: %d\n", rc);
+			pr_err("tm setup failed: %d\n", rc);
 		return rc;
 		}
 	}
@@ -3070,14 +3047,14 @@ static void readjust_fcc_table(struct qpnp_bms_chip *chip)
 		return;
 
 	if (!chip->fcc_temp_lut) {
-		pr_debug("The static fcc lut table is NULL\n");
+		pr_err("The static fcc lut table is NULL\n");
 		return;
 	}
 
 	temp = devm_kzalloc(chip->dev, sizeof(struct single_row_lut),
 			GFP_KERNEL);
 	if (!temp) {
-		pr_debug("Cannot allocate memory for adjusted fcc table\n");
+		pr_err("Cannot allocate memory for adjusted fcc table\n");
 		return;
 	}
 
@@ -3107,7 +3084,7 @@ static int read_fcc_data_from_backup(struct qpnp_bms_chip *chip)
 		rc |= qpnp_read_wrapper(chip, &chgcyl,
 			chip->base + BMS_CHGCYL_BASE_REG + i, 1);
 		if (rc) {
-			pr_debug("Unable to read FCC data\n");
+			pr_err("Unable to read FCC data\n");
 			return rc;
 		}
 		if (fcc == 0 || (fcc == 0xFF && chgcyl == 0xFF)) {
@@ -3139,7 +3116,7 @@ static int discard_backup_fcc_data(struct qpnp_bms_chip *chip)
 		rc |= qpnp_write_wrapper(chip, &temp_u8,
 			chip->base + BMS_CHGCYL_BASE_REG + i, 1);
 		if (rc) {
-			pr_debug("Unable to clear FCC data\n");
+			pr_err("Unable to clear FCC data\n");
 			return rc;
 		}
 	}
@@ -3184,14 +3161,14 @@ static void backup_charge_cycle(struct qpnp_bms_chip *chip)
 		rc = qpnp_write_wrapper(chip, &chip->charge_increase,
 			chip->base + CHARGE_INCREASE_STORAGE, 1);
 		if (rc)
-			pr_debug("Unable to backup charge_increase\n");
+			pr_err("Unable to backup charge_increase\n");
 	}
 
 	if (chip->charge_cycles >= 0) {
 		rc = qpnp_write_wrapper(chip, (u8 *)&chip->charge_cycles,
 				chip->base + CHARGE_CYCLE_STORAGE_LSB, 2);
 		if (rc)
-			pr_debug("Unable to backup charge_cycles\n");
+			pr_err("Unable to backup charge_cycles\n");
 	}
 }
 
@@ -3327,7 +3304,7 @@ static void update_fcc_learning_table(struct qpnp_bms_chip *chip,
 
 	rc = backup_new_fcc(chip, new_fcc_uah / 1000, chargecycles);
 	if (rc) {
-		pr_debug("Unable to backup new FCC\n");
+		pr_err("Unable to backup new FCC\n");
 		return;
 	}
 	
@@ -3353,7 +3330,7 @@ static void fcc_learning_config(struct qpnp_bms_chip *chip, bool start)
 
 	rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM, &result);
 	if (rc) {
-		pr_debug("Unable to read batt_temp\n");
+		pr_err("Unable to read batt_temp\n");
 		return;
 	} else {
 		batt_temp = (int)result.physical;
@@ -3361,7 +3338,7 @@ static void fcc_learning_config(struct qpnp_bms_chip *chip, bool start)
 
 	rc = read_soc_params_raw(chip, &raw, batt_temp);
 	if (rc) {
-		pr_debug("Unable to read CC, cannot update FCC\n");
+		pr_err("Unable to read CC, cannot update FCC\n");
 		return;
 	}
 
@@ -3701,7 +3678,7 @@ int pm8941_bms_get_batt_soc(int *result)
 		return -EINVAL;
 	}
 
-	batt_level = state_of_charge = *result = recalculate_soc(the_chip);
+	state_of_charge = *result = recalculate_soc(the_chip);
 
 	if (new_boot_soc && allow_ocv_time &&
 		(currtime_ms >= allow_ocv_time)) {
@@ -3747,7 +3724,7 @@ int pm8941_bms_get_batt_cc(int *result)
 int pm8941_bms_get_fcc(void)
 {
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 
@@ -3761,14 +3738,14 @@ static int get_bms_reg(void *data, u64 *val)
 	u8 bms_sts;
 
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 
 	rc = qpnp_read_wrapper(the_chip, &bms_sts,
 			the_chip->base + addr, 1);
 	if (rc) {
-		pr_debug("failed to read BMS1 register sts %d\n", rc);
+		pr_err("failed to read BMS1 register sts %d\n", rc);
 		return -EAGAIN;
 	}
 	pr_debug("addr:0x%X, val:0x%X\n", (the_chip->base + addr), bms_sts);
@@ -3783,14 +3760,14 @@ static int get_iadc_reg(void *data, u64 *val)
 	u8 iadc_sts;
 
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 
 	rc = qpnp_read_wrapper(the_chip, &iadc_sts,
 			the_chip->iadc_base + addr, 1);
 	if (rc) {
-		pr_debug("failed to read IADC1 register sts %d\n", rc);
+		pr_err("failed to read IADC1 register sts %d\n", rc);
 		return -EAGAIN;
 	}
 	pr_debug("addr:0x%X, val:0x%X\n", (the_chip->iadc_base + addr), iadc_sts);
@@ -3836,7 +3813,7 @@ static int dump_all(void)
 	rc = qpnp_vadc_read(the_chip->vadc_dev, LR_MUX1_BATT_THERM,
 								&result);
 	if (rc) {
-		pr_debug("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
+		pr_err("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
 			LR_MUX1_BATT_THERM, rc);
 		return rc;
 	}
@@ -3884,7 +3861,7 @@ static int dump_all(void)
 inline int pm8941_bms_dump_all(void)
 {
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 	dump_all();
@@ -3903,7 +3880,7 @@ int pm8941_bms_get_attr_text(char *buf, int size)
 	struct qpnp_vadc_result result;
 
 	if (!the_chip) {
-		pr_debug("driver not initialized\n");
+		pr_err("driver not initialized\n");
 		return 0;
 	}
 	len += scnprintf(buf + len, size - len,
@@ -3948,7 +3925,7 @@ int pm8941_bms_get_attr_text(char *buf, int size)
 	rc = qpnp_vadc_read(the_chip->vadc_dev, LR_MUX1_BATT_THERM,
 								&result);
 	if (rc) {
-		pr_debug("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
+		pr_err("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
 			LR_MUX1_BATT_THERM, rc);
 		return len;
 	}
@@ -4046,13 +4023,13 @@ int pm8941_get_batt_id(int *result)
 	int battery_id_mv;
 
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 
 	battery_id_raw = read_battery_id(the_chip);
 	if (battery_id_raw < 0) {
-		pr_debug("cannot read battery id err = %lld\n", battery_id_raw);
+		pr_err("cannot read battery id err = %lld\n", battery_id_raw);
 		return -EINVAL;
 	}
 
@@ -4072,7 +4049,7 @@ int pm8941_bms_get_percent_charge(struct qpnp_bms_chip *chip)
 	rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM,
 								&result);
 	if (rc) {
-		pr_debug("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
+		pr_err("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
 			LR_MUX1_BATT_THERM, rc);
 		return rc;
 	}
@@ -4120,7 +4097,7 @@ int pm8941_bms_store_battery_ui_soc(int soc_ui)
 int pm8941_bms_get_battery_ui_soc(void)
 {
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 	pr_debug("batt_stored_soc: %d\n", the_chip->batt_stored_soc);
@@ -4135,7 +4112,7 @@ int pm8941_bms_get_battery_ui_soc(void)
 int pm8941_bms_stop_ocv_updates(void)
 {
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 	if (!is_ocv_update_start) {
@@ -4151,7 +4128,7 @@ int pm8941_bms_stop_ocv_updates(void)
 int pm8941_bms_start_ocv_updates(void)
 {
 	if (!the_chip) {
-		pr_debug("called before init\n");
+		pr_err("called before init\n");
 		return -EINVAL;
 	}
 	if (is_ocv_update_start) {
@@ -4242,7 +4219,7 @@ int pm8941_batt_lower_alarm_threshold_set(int threshold_mV)
 		rc = qpnp_adc_tm_channel_measure(the_chip->adc_tm_dev,
 						&the_chip->vbat_monitor_params);
 		if (rc) {
-			pr_debug("tm setup failed: %d\n", rc);
+			pr_err("tm setup failed: %d\n", rc);
 		return rc;
 		}
 	}
@@ -4269,19 +4246,19 @@ static int set_ocv_voltage_thresholds(struct qpnp_bms_chip *chip,
 	rc = qpnp_write_wrapper(chip, (u8 *)&low_voltage_raw,
 			chip->base + BMS1_OCV_USE_LOW_LIMIT_THR0, 2);
 	if (rc) {
-		pr_debug("Failed to set ocv low voltage threshold: %d\n", rc);
+		pr_err("Failed to set ocv low voltage threshold: %d\n", rc);
 		return rc;
 	}
 	rc = qpnp_write_wrapper(chip, (u8 *)&high_voltage_raw,
 			chip->base + BMS1_OCV_USE_HIGH_LIMIT_THR0, 2);
 	if (rc) {
-		pr_debug("Failed to set ocv high voltage threshold: %d\n", rc);
+		pr_err("Failed to set ocv high voltage threshold: %d\n", rc);
 		return rc;
 	}
 	rc = qpnp_masked_write(chip, BMS1_OCV_USE_LIMIT_CTL,
 				OCV_USE_LIMIT_EN, OCV_USE_LIMIT_EN);
 	if (rc) {
-		pr_debug("Failed to enabled ocv voltage thresholds: %d\n", rc);
+		pr_err("Failed to enabled ocv voltage thresholds: %d\n", rc);
 		return rc;
 	}
 	pr_debug("ocv low threshold set to %d uv or 0x%x raw\n",
@@ -4298,12 +4275,12 @@ static int read_shutdown_iavg_ma(struct qpnp_bms_chip *chip)
 
 	rc = qpnp_read_wrapper(chip, &iavg, chip->base + IAVG_STORAGE_REG, 1);
 	if (rc) {
-		pr_debug("failed to read addr = %d %d assuming %d\n",
+		pr_err("failed to read addr = %d %d assuming %d\n",
 				chip->base + IAVG_STORAGE_REG, rc,
 				MIN_IAVG_MA);
 		return MIN_IAVG_MA;
 	} else if (iavg == IAVG_INVALID) {
-		pr_debug("invalid iavg read from BMS1_DATA_REG_1, using %d\n",
+		pr_err("invalid iavg read from BMS1_DATA_REG_1, using %d\n",
 				MIN_IAVG_MA);
 		return MIN_IAVG_MA;
 	} else {
@@ -4321,7 +4298,7 @@ static int read_shutdown_soc(struct qpnp_bms_chip *chip)
 
 	rc = qpnp_read_wrapper(chip, &stored_soc, chip->soc_storage_addr, 1);
 	if (rc) {
-		pr_debug("failed to read addr = %d %d\n",
+		pr_err("failed to read addr = %d %d\n",
 				chip->soc_storage_addr, rc);
 		return SOC_INVALID;
 	}
@@ -4412,7 +4389,7 @@ static int64_t read_battery_id(struct qpnp_bms_chip *chip)
 
 	rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX2_BAT_ID, &result);
 	if (rc) {
-		pr_debug("error reading batt id channel = %d, rc = %d\n",
+		pr_err("error reading batt id channel = %d, rc = %d\n",
 					LR_MUX2_BAT_ID, rc);
 		return rc;
 	}
@@ -4442,7 +4419,7 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 #if !(defined(CONFIG_HTC_BATT_8960))
 		battery_id = read_battery_id(chip);
 		if (battery_id < 0) {
-			pr_debug("cannot read battery id err = %lld\n",
+			pr_err("cannot read battery id err = %lld\n",
 							battery_id);
 			return battery_id;
 		}
@@ -4464,7 +4441,7 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 		batt_data = devm_kzalloc(chip->dev,
 				sizeof(struct bms_battery_data), GFP_KERNEL);
 		if (!batt_data) {
-			pr_debug("Could not alloc battery data\n");
+			pr_err("Could not alloc battery data\n");
 			batt_data = &palladium_1500_data;
 			goto assign_data;
 		}
@@ -4495,7 +4472,7 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 				&& batt_data->rbatt_sf_lut) {
 			dt_data = true;
 		} else {
-			pr_debug("battery data load failed, using palladium 1500\n");
+			pr_err("battery data load failed, using palladium 1500\n");
 			devm_kfree(chip->dev, batt_data->fcc_temp_lut);
 			devm_kfree(chip->dev, batt_data->pc_temp_ocv_lut);
 			devm_kfree(chip->dev, batt_data->rbatt_sf_lut);
@@ -4525,7 +4502,7 @@ assign_data:
 		chip->chg_term_ua = batt_data->iterm_ua;
 
 	if (chip->pc_temp_ocv_lut == NULL) {
-		pr_debug("temp ocv lut table has not been loaded\n");
+		pr_err("temp ocv lut table has not been loaded\n");
 		if (dt_data) {
 			devm_kfree(chip->dev, batt_data->fcc_temp_lut);
 			devm_kfree(chip->dev, batt_data->pc_temp_ocv_lut);
@@ -4550,7 +4527,7 @@ static int bms_get_adc(struct qpnp_bms_chip *chip,
 	if (IS_ERR(chip->vadc_dev)) {
 		rc = PTR_ERR(chip->vadc_dev);
 		if (rc != -EPROBE_DEFER)
-			pr_debug("vadc property missing, rc=%d\n", rc);
+			pr_err("vadc property missing, rc=%d\n", rc);
 		return rc;
 	}
 
@@ -4558,7 +4535,7 @@ static int bms_get_adc(struct qpnp_bms_chip *chip,
 	if (IS_ERR(chip->iadc_dev)) {
 		rc = PTR_ERR(chip->iadc_dev);
 		if (rc != -EPROBE_DEFER)
-			pr_debug("iadc property missing, rc=%d\n", rc);
+			pr_err("iadc property missing, rc=%d\n", rc);
 		return rc;
 	}
 
@@ -4566,7 +4543,7 @@ static int bms_get_adc(struct qpnp_bms_chip *chip,
 	if (IS_ERR(chip->adc_tm_dev)) {
 		rc = PTR_ERR(chip->adc_tm_dev);
 		if (rc != -EPROBE_DEFER)
-			pr_debug("adc-tm not ready, defer probe\n");
+			pr_err("adc-tm not ready, defer probe\n");
 		return rc;
 	}
 
@@ -4583,7 +4560,7 @@ do {									\
 	if ((retval == -EINVAL) && optional)				\
 		retval = 0;								\
 	else if (retval) {							\
-		pr_debug("Error reading " #qpnp_spmi_property		\
+		pr_err("Error reading " #qpnp_spmi_property		\
 						" property %d\n", rc);	\
 	}								\
 } while (0)
@@ -4637,6 +4614,7 @@ static inline int bms_read_properties(struct qpnp_bms_chip *chip)
 	SPMI_PROP_READ(batt_stored_soc, "stored-batt-soc", rc, true);
 	SPMI_PROP_READ(batt_stored_update_time, "stored-batt-update-time", rc, true);
 	SPMI_PROP_READ(store_batt_data_soc_thre, "store-batt-data-soc-thre", rc, true);
+	SPMI_PROP_READ(enable_sw_ocv_in_eoc, "enable-sw-ocv-in-eoc", rc, true);
 	SPMI_PROP_READ(enable_batt_full_fake_ocv, "enable-batt-full-fake-ocv", rc, true);
 
 	chip->use_external_rsense = of_property_read_bool(
@@ -4677,7 +4655,7 @@ static inline int bms_read_properties(struct qpnp_bms_chip *chip)
 	}
 
 	if (rc) {
-		pr_debug("Missing required properties.\n");
+		pr_err("Missing required properties.\n");
 		return rc;
 	}
 
@@ -4736,7 +4714,7 @@ do {									\
 	chip->irq_name##_irq.irq = spmi_get_irq_byname(chip->spmi,	\
 					resource, #irq_name);		\
 	if (chip->irq_name##_irq.irq < 0) {				\
-		pr_debug("Unable to get " #irq_name " irq\n");		\
+		pr_err("Unable to get " #irq_name " irq\n");		\
 		return -ENXIO;						\
 	}								\
 } while (0)
@@ -4761,7 +4739,7 @@ do {									\
 			bms_##irq_name##_irq_handler,			\
 			IRQF_TRIGGER_RISING, #irq_name, chip);		\
 	if (rc < 0) {							\
-		pr_debug("Unable to request " #irq_name " irq: %d\n", rc);\
+		pr_err("Unable to request " #irq_name " irq: %d\n", rc);\
 		return -ENXIO;						\
 	}								\
 } while (0)
@@ -4795,14 +4773,14 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 
 	spmi_for_each_container_dev(spmi_resource, spmi) {
 		if (!spmi_resource) {
-			pr_debug("qpnp_bms: spmi resource absent\n");
+			pr_err("qpnp_bms: spmi resource absent\n");
 			return -ENXIO;
 		}
 
 		resource = spmi_get_resource(spmi, spmi_resource,
 						IORESOURCE_MEM, 0);
 		if (!(resource && resource->start)) {
-			pr_debug("node %s IO resource absent!\n",
+			pr_err("node %s IO resource absent!\n",
 				spmi->dev.of_node->full_name);
 			return -ENXIO;
 		}
@@ -4822,13 +4800,13 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 		rc = qpnp_read_wrapper(chip, &type,
 				resource->start + REG_OFFSET_PERP_TYPE, 1);
 		if (rc) {
-			pr_debug("Peripheral type read failed rc=%d\n", rc);
+			pr_err("Peripheral type read failed rc=%d\n", rc);
 			return rc;
 		}
 		rc = qpnp_read_wrapper(chip, &subtype,
 				resource->start + REG_OFFSET_PERP_SUBTYPE, 1);
 		if (rc) {
-			pr_debug("Peripheral subtype read failed rc=%d\n", rc);
+			pr_err("Peripheral subtype read failed rc=%d\n", rc);
 			return rc;
 		}
 
@@ -4836,7 +4814,7 @@ static int register_spmi(struct qpnp_bms_chip *chip, struct spmi_device *spmi)
 			chip->base = resource->start;
 			rc = bms_find_irqs(chip, spmi_resource);
 			if (rc) {
-				pr_debug("Could not find irqs\n");
+				pr_err("Could not find irqs\n");
 				return rc;
 			}
 		} else if (type == BMS_IADC_TYPE
@@ -4882,14 +4860,14 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 	rc = qpnp_read_wrapper(chip, &iadc_channel_select,
 			chip->iadc_base + IADC1_BMS_ADC_CH_SEL_CTL, 1);
 	if (rc) {
-		pr_debug("Error reading bms_iadc channel register %d\n", rc);
+		pr_err("Error reading bms_iadc channel register %d\n", rc);
 		return rc;
 	}
 
 	iadc_channel_select &= ADC_CH_SEL_MASK;
 	if (iadc_channel_select != EXTERNAL_RSENSE
 			&& iadc_channel_select != INTERNAL_RSENSE) {
-		pr_debug("IADC1_BMS_IADC configured incorrectly. Selected channel = %d\n",
+		pr_err("IADC1_BMS_IADC configured incorrectly. Selected channel = %d\n",
 						iadc_channel_select);
 		return -EINVAL;
 	}
@@ -4903,7 +4881,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 					ADC_CH_SEL_MASK,
 					EXTERNAL_RSENSE);
 			if (rc) {
-				pr_debug("Unable to set IADC1_BMS channel %x to %x: %d\n",
+				pr_err("Unable to set IADC1_BMS channel %x to %x: %d\n",
 						IADC1_BMS_ADC_CH_SEL_CTL,
 						EXTERNAL_RSENSE, rc);
 				return rc;
@@ -4921,7 +4899,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 					ADC_CH_SEL_MASK,
 					INTERNAL_RSENSE);
 			if (rc) {
-				pr_debug("Unable to set IADC1_BMS channel %x to %x: %d\n",
+				pr_err("Unable to set IADC1_BMS channel %x to %x: %d\n",
 						IADC1_BMS_ADC_CH_SEL_CTL,
 						INTERNAL_RSENSE, rc);
 				return rc;
@@ -4932,7 +4910,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 
 		rc = qpnp_iadc_get_rsense(chip->iadc_dev, &rds_rsense_nohm);
 		if (rc) {
-			pr_debug("Unable to read RDS resistance value from IADC; rc = %d\n",
+			pr_err("Unable to read RDS resistance value from IADC; rc = %d\n",
 								rc);
 			return rc;
 		}
@@ -4948,7 +4926,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 					ADC_INT_RSNSN_CTL_MASK,
 					ADC_INT_RSNSN_CTL_VALUE_EXT_RENSE);
 			if (rc) {
-				pr_debug("Unable to set batfet config %x to %x: %d\n",
+				pr_err("Unable to set batfet config %x to %x: %d\n",
 					IADC1_BMS_ADC_INT_RSNSN_CTL,
 					ADC_INT_RSNSN_CTL_VALUE_EXT_RENSE, rc);
 				return rc;
@@ -4960,7 +4938,7 @@ static int read_iadc_channel_select(struct qpnp_bms_chip *chip)
 					FAST_AVG_EN_MASK,
 					FAST_AVG_EN_VALUE_EXT_RSENSE);
 			if (rc) {
-				pr_debug("Unable to set batfet config %x to %x: %d\n",
+				pr_err("Unable to set batfet config %x to %x: %d\n",
 					IADC1_BMS_FAST_AVG_EN,
 					FAST_AVG_EN_VALUE_EXT_RSENSE, rc);
 				return rc;
@@ -5021,7 +4999,7 @@ static int setup_die_temp_monitoring(struct qpnp_bms_chip *chip)
 						&btm_notify_die_temp;
 	rc = refresh_die_temp_monitor(chip);
 	if (rc) {
-		pr_debug("tm setup failed: %d\n", rc);
+		pr_err("tm setup failed: %d\n", rc);
 		return rc;
 	}
 	pr_debug("setup complete\n");
@@ -5037,14 +5015,13 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	struct timespec xtime;
 	unsigned long currtime_ms;
 	struct raw_soc_params raw;
-	struct qpnp_vadc_result result;
 	struct soc_params params;
 
 	chip = devm_kzalloc(&spmi->dev, sizeof(struct qpnp_bms_chip),
 			GFP_KERNEL);
 
 	if (chip == NULL) {
-		pr_debug("kzalloc() failed.\n");
+		pr_err("kzalloc() failed.\n");
 		return -ENOMEM;
 	}
 
@@ -5068,21 +5045,21 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 
 	rc = register_spmi(chip, spmi);
 	if (rc) {
-		pr_debug("error registering spmi resource %d\n", rc);
+		pr_err("error registering spmi resource %d\n", rc);
 		goto error_resource;
 	}
 
 	rc = qpnp_read_wrapper(chip, &chip->revision1,
 			chip->base + REVISION1, 1);
 	if (rc) {
-		pr_debug("error reading version register %d\n", rc);
+		pr_err("error reading version register %d\n", rc);
 		goto error_read;
 	}
 
 	rc = qpnp_read_wrapper(chip, &chip->revision2,
 			chip->base + REVISION2, 1);
 	if (rc) {
-		pr_debug("Error reading version register %d\n", rc);
+		pr_err("Error reading version register %d\n", rc);
 		goto error_read;
 	}
 	pr_debug("BMS version: %hhu.%hhu\n", chip->revision2, chip->revision1);
@@ -5090,14 +5067,14 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	rc = qpnp_read_wrapper(chip, &chip->iadc_bms_revision2,
 			chip->iadc_base + REVISION2, 1);
 	if (rc) {
-		pr_debug("Error reading version register %d\n", rc);
+		pr_err("Error reading version register %d\n", rc);
 		goto error_read;
 	}
 
 	rc = qpnp_read_wrapper(chip, &chip->iadc_bms_revision1,
 			chip->iadc_base + REVISION1, 1);
 	if (rc) {
-		pr_debug("Error reading version register %d\n", rc);
+		pr_err("Error reading version register %d\n", rc);
 		goto error_read;
 	}
 	pr_debug("IADC_BMS version: %hhu.%hhu\n",
@@ -5105,13 +5082,13 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 
 	rc = bms_read_properties(chip);
 	if (rc) {
-		pr_debug("Unable to read all bms properties, rc = %d\n", rc);
+		pr_err("Unable to read all bms properties, rc = %d\n", rc);
 		goto error_read;
 	}
 
 	rc = read_iadc_channel_select(chip);
 	if (rc) {
-		pr_debug("Unable to get iadc selected channel = %d\n", rc);
+		pr_err("Unable to get iadc selected channel = %d\n", rc);
 		goto error_read;
 	}
 
@@ -5120,7 +5097,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 				chip->ocv_low_threshold_uv,
 				chip->ocv_high_threshold_uv);
 		if (rc) {
-			pr_debug("Could not set ocv voltage thresholds: %d\n",
+			pr_err("Could not set ocv voltage thresholds: %d\n",
 					rc);
 			goto error_read;
 		}
@@ -5128,7 +5105,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 
 	rc = set_battery_data(chip);
 	if (rc) {
-		pr_debug("Bad battery data %d\n", rc);
+		pr_err("Bad battery data %d\n", rc);
 		goto error_read;
 	}
 
@@ -5151,22 +5128,19 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 
 	load_shutdown_data(chip);
 
-	if (chip->criteria_sw_est_ocv)
-		chip->criteria_sw_est_ocv = FIRST_SW_EST_OCV_THR_MS;
-
 	if (chip->enable_fcc_learning) {
 		if (chip->battery_removed) {
 			rc = discard_backup_fcc_data(chip);
 			if (rc)
-				pr_debug("Could not discard backed-up FCC data\n");
+				pr_err("Could not discard backed-up FCC data\n");
 		} else {
 			rc = read_chgcycle_data_from_backup(chip);
 			if (rc)
-				pr_debug("Unable to restore charge-cycle data\n");
+				pr_err("Unable to restore charge-cycle data\n");
 
 			rc = read_fcc_data_from_backup(chip);
 			if (rc)
-				pr_debug("Unable to restore FCC-learning data\n");
+				pr_err("Unable to restore FCC-learning data\n");
 			else
 				attempt_learning_new_fcc(chip);
 		}
@@ -5175,13 +5149,13 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 #if !(defined(CONFIG_HTC_BATT_8960))
 	rc = setup_vbat_monitoring(chip);
 	if (rc < 0) {
-		pr_debug("failed to set up voltage notifications: %d\n", rc);
+		pr_err("failed to set up voltage notifications: %d\n", rc);
 		goto error_setup;
 	}
 
 	rc = setup_die_temp_monitoring(chip);
 	if (rc < 0) {
-		pr_debug("failed to set up die temp notifications: %d\n", rc);
+		pr_err("failed to set up die temp notifications: %d\n", rc);
 		goto error_setup;
 	}
 #endif
@@ -5196,39 +5170,34 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	
 	rc = pm8941_bms_start_ocv_updates();
 	if (rc) {
-		pr_debug("failed to enable HW OCV measurement: %d\n", rc);
+		pr_err("failed to enable HW OCV measurement: %d\n", rc);
 		goto error_setup;
 	}
 
 	curr_soc = pm8941_bms_get_percent_charge(chip);
+	rc = pm8941_get_batt_temperature(&batt_temp);
+	if (rc)
+		pr_err("get temperature failed err = %d\n", rc);
 
 	xtime = CURRENT_TIME;
 	currtime_ms = xtime.tv_sec * MSEC_PER_SEC + xtime.tv_nsec / NSEC_PER_MSEC;
 
 	
 	if (chip->batt_stored_magic_num == BMS_STORE_MAGIC_NUM
-			&& chip->store_batt_data_soc_thre > 0
+			&& chip->store_batt_data_soc_thre > 0 && batt_temp >= 0
 			&& (curr_soc > chip->batt_stored_soc || chip->batt_stored_soc - curr_soc > 1)
 			&& (currtime_ms - chip->batt_stored_update_time) < 3600000 ) {
 
 		rc = bms_read_batt_stored_properties(chip);
 		if (rc) {
-			pr_debug("Unable to read all bms properties, rc = %d\n", rc);
+			pr_err("Unable to read all bms properties, rc = %d\n", rc);
 			goto error_read;
 		}
 
-		rc = qpnp_vadc_read(chip->vadc_dev, LR_MUX1_BATT_THERM,
-			&result);
-		if (rc) {
-			pr_debug("error reading vadc LR_MUX1_BATT_THERM = %d, rc = %d\n",
-				LR_MUX1_BATT_THERM, rc);
-			return rc;
-		}
-		batt_temp = (int)result.physical;
 		read_soc_params_raw(chip, &raw, batt_temp);
 		calculate_soc_params(chip, &raw, &params, batt_temp);
 		chip->ocv_backup_uv = chip->last_ocv_uv = chip->batt_stored_ocv_uv;
-		chip->cc_backup_uah = params.cc_uah - chip->batt_stored_cc_uah;
+		chip->cc_backup_uah = bms_dbg.ori_cc_uah - chip->batt_stored_cc_uah;
 
 		new_boot_soc = pm8941_bms_get_percent_charge(chip);
 		
@@ -5255,7 +5224,7 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	rc = power_supply_register(chip->dev, &chip->bms_psy);
 
 	if (rc < 0) {
-		pr_debug("power_supply_register bms failed rc = %d\n", rc);
+		pr_err("power_supply_register bms failed rc = %d\n", rc);
 		goto unregister_dc;
 	}
 
@@ -5264,14 +5233,14 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 	vbatt = 0;
 	rc = get_battery_voltage(chip, &vbatt);
 	if (rc) {
-		pr_debug("error reading vbat_sns adc channel = %d, rc = %d\n",
+		pr_err("error reading vbat_sns adc channel = %d, rc = %d\n",
 						VBAT_SNS, rc);
 		goto unregister_dc;
 	}
 
 	rc = bms_request_irqs(chip);
 	if (rc) {
-		pr_debug("error requesting bms irqs, rc = %d\n", rc);
+		pr_err("error requesting bms irqs, rc = %d\n", rc);
 		goto unregister_dc;
 	}
 
@@ -5288,10 +5257,10 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 
 	pr_debug("curr_soc=%d,new_boot_soc:%d,stored_soc:%d,vbatt=%d,OCV=%d,r_sense_uohm=%u,"
 			"warm_reset=%d,raw.cc:%lld,stored_cc:%d,cc_backup:%d,stored_ocv:%d,"
-			"boot_currtime_ms:%lu,allow_ocv_time:%lu,stored_time:%u\n",
+			"boot_currtime_ms:%lu,allow_ocv_time:%lu,stored_time:%u,batt_temp:%d\n",
 			curr_soc, new_boot_soc, chip->batt_stored_soc, vbatt, chip->last_ocv_uv, chip->r_sense_uohm,
 			warm_reset, raw.cc, chip->batt_stored_cc_uah, chip->cc_backup_uah, chip->batt_stored_ocv_uv,
-			currtime_ms, allow_ocv_time, chip->batt_stored_update_time);
+			currtime_ms, allow_ocv_time, chip->batt_stored_update_time, batt_temp);
 	return 0;
 
 unregister_dc:
@@ -5309,6 +5278,30 @@ error_setup:
 error_resource:
 error_read:
 	return rc;
+}
+
+int pm8941_check_soc_for_sw_ocv(void)
+{
+	int is_full_eoc = 0;
+
+	if (!the_chip) {
+		pr_warn("called before init\n");
+		return -EINVAL;
+	}
+
+	if (!the_chip->enable_sw_ocv_in_eoc)
+		return 0;
+
+	pm8941_is_batt_full_eoc_stop(&is_full_eoc);
+	if (is_full_eoc) {
+		pr_info("is_full_eoc=%d, store_soc_ui=%d, raw_soc=%d\n",
+			is_full_eoc, store_soc_ui, bms_dbg.raw_soc);
+		if (abs(store_soc_ui - bms_dbg.raw_soc) >= 5) {
+			is_do_sw_ocv_in_eoc = 1;
+			pm8941_bms_estimate_ocv();
+		}
+	}
+	return 0;
 }
 
 static int qpnp_bms_remove(struct spmi_device *spmi)
@@ -5338,7 +5331,7 @@ static int bms_resume(struct device *dev)
 
 	rc = get_current_time(&tm_now_sec);
 	if (rc) {
-		pr_debug("Could not read current time: %d\n", rc);
+		pr_err("Could not read current time: %d\n", rc);
 	} else {
 		soc_calc_period = get_calculation_delay_ms(chip);
 		time_since_last_recalc = tm_now_sec - chip->last_recalc_time;
@@ -5390,8 +5383,7 @@ static void bms_complete(struct device *dev)
 	sr_time_period_ms = resume_ms - htc_batt_bms_timer.batt_suspend_ms;
 	htc_batt_bms_timer.no_ocv_update_period_ms += sr_time_period_ms;
 
-	if (htc_batt_bms_timer.no_ocv_update_period_ms > the_chip->criteria_sw_est_ocv
-		&& batt_level > DISABLE_SW_OCV_LEVEL_THRESHOLD)
+	if (htc_batt_bms_timer.no_ocv_update_period_ms > the_chip->criteria_sw_est_ocv)
 		pm8941_bms_estimate_ocv();
 }
 

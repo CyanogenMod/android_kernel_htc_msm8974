@@ -36,6 +36,7 @@ int pm8941_bms_store_battery_data_emmc(void);
 int pm8941_bms_store_battery_ui_soc(int soc_ui);
 int pm8941_bms_get_battery_ui_soc(void);
 int pm8941_batt_lower_alarm_threshold_set(int threshold_mV);
+int pm8941_check_soc_for_sw_ocv(void);
 int pm8941_bms_batt_full_fake_ocv(void);
 #endif 
 #else 
@@ -89,6 +90,10 @@ static inline int pm8941_bms_store_battery_ui_soc(int soc_ui)
 	return -ENXIO;
 }
 static inline int pm8941_bms_get_battery_ui_soc(void)
+{
+	return -ENXIO;
+}
+static inline int pm8941_check_soc_for_sw_ocv(void)
 {
     return -ENXIO;
 }

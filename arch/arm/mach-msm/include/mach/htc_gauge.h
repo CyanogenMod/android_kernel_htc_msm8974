@@ -48,6 +48,7 @@ struct htc_gauge {
 	int (*enable_lower_voltage_alarm)(int enable);
 	int (*set_lower_voltage_alarm_threshold)(int thres_mV);
 	int (*set_chg_ovp)(int is_ovp);
+	int (*check_soc_for_sw_ocv)(void);
 };
 
 int htc_gauge_event_notify(enum htc_gauge_event);

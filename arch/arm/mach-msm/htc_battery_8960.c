@@ -350,7 +350,7 @@ int htc_gauge_event_notify(enum htc_gauge_event event)
 	switch (event) {
 	case HTC_GAUGE_EVENT_READY:
 		if (!htc_batt_info.igauge) {
-			pr_debug("[BATT]err: htc_gauge is not hooked.\n");
+			pr_err("[BATT]err: htc_gauge is not hooked.\n");
 			break;
 		}
 		mutex_lock(&htc_batt_info.info_lock);
@@ -484,7 +484,7 @@ int htc_charger_event_notify(enum htc_charger_event event)
 		break;
 	case HTC_CHARGER_EVENT_READY:
 		if (!htc_batt_info.icharger) {
-			pr_debug("[BATT]err: htc_charger is not hooked.\n");
+			pr_err("[BATT]err: htc_charger is not hooked.\n");
 				
 			break;
 		}
@@ -1510,6 +1510,9 @@ static void batt_update_info_from_gauge(void)
 	
 	if (htc_batt_info.icharger->is_ovp)
 		htc_batt_info.icharger->is_ovp(&htc_batt_info.rep.over_vchg);
+
+	if (htc_batt_info.igauge->check_soc_for_sw_ocv)
+		htc_batt_info.igauge->check_soc_for_sw_ocv();
 }
 
 inline static int is_voltage_critical_low(int voltage_mv)
@@ -1567,25 +1570,6 @@ static void batt_check_critical_low_level(int *dec_level, int batt_current)
 	}
 }
 
-static bool is_level_change_time_reached(unsigned long level_change_time,
-		unsigned long pre_jiffies)
-{
-	unsigned long cur_jiffies = jiffies;
-	unsigned long level_since_last_update_ms;
-
-	level_since_last_update_ms =
-		(cur_jiffies - pre_jiffies) * MSEC_PER_SEC / HZ;
-	BATT_LOG("%s: total_time since last batt level update = %lu ms.",
-			__func__, level_since_last_update_ms);
-
-	if (level_since_last_update_ms < level_change_time) {
-		
-		return false;
-	}
-	
-	return true;
-}
-
 static void adjust_store_level(int *store_level, int drop_raw, int drop_ui, int prev) {
 	int store = *store_level;
 	
@@ -1617,8 +1601,7 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 	int prev_level;
 	int is_full = 0, dec_level = 0;
 	int dropping_level;
-	static unsigned long pre_jiffies;
-	static unsigned long time_accumulated = 0;
+	static unsigned long time_accumulated_level_change = 0;
 	const struct battery_info_reply *prev_batt_info_rep =
 						htc_battery_core_get_batt_info_rep();
 
@@ -1628,15 +1611,15 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 	} else {
 		prev_level = htc_batt_info.rep.level;
 		prev_raw_level = htc_batt_info.rep.level_raw;
-		pre_jiffies = 0;
 		pre_ten_digit = htc_batt_info.rep.level / 10;
 	}
 	drop_raw_level = prev_raw_level - htc_batt_info.rep.level_raw;
+	time_accumulated_level_change += time_since_last_update_ms;
 
 	if ((prev_batt_info_rep->charging_source > 0) &&
 		htc_batt_info.rep.charging_source == 0 && prev_level == 100) {
 		BATT_LOG("%s: Cable plug out when level 100, reset timer.",__func__);
-		pre_jiffies = jiffies;
+		time_accumulated_level_change = 0;
 		htc_batt_info.rep.level = prev_level;
 		return;
 	}
@@ -1654,13 +1637,12 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 	if (!prev_batt_info_rep->charging_enabled &&
 			!((prev_batt_info_rep->charging_source == 0) &&
 				htc_batt_info.rep.charging_source > 0)) {
-		if (drop_raw_level > 0) {
-			if (is_level_change_time_reached(DISCHG_UPDATE_PERIOD_MS,
-					pre_jiffies) == false) {
-				htc_batt_info.rep.level = prev_level;
-				store_level += drop_raw_level;
-				return;
-			}
+		if (time_accumulated_level_change < DISCHG_UPDATE_PERIOD_MS) {
+			BATT_LOG("%s: total_time since last batt level update = %lu ms.",
+			__func__, time_accumulated_level_change);
+			htc_batt_info.rep.level = prev_level;
+			store_level += drop_raw_level;
+			return;
 		}
 
 		if (is_voltage_critical_low(htc_batt_info.rep.batt_vol)) {
@@ -1682,7 +1664,7 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 		} else {
 			
 			
-			if ((htc_batt_info.rep.level_raw < 30) ||
+			if ((htc_batt_info.rep.level_raw < 20) ||
 					(prev_level - prev_raw_level > 10))
 				allow_drop_one_percent_flag = true;
 
@@ -1782,24 +1764,18 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 				drop_raw_level == 0 &&
 				store_level >= 2) {
 				
-				time_accumulated += time_since_last_update_ms;
-				if (time_accumulated >= DISCHG_UPDATE_PERIOD_MS) {
-					dropping_level = prev_level - htc_batt_info.rep.level;
-					if((dropping_level == 1) || (dropping_level == 0)) {
-						store_level = store_level - (2 - dropping_level);
-						htc_batt_info.rep.level = htc_batt_info.rep.level -
-							(2 - dropping_level);
-					}
-					time_accumulated = 0;
-					pr_debug("[BATT] remap: enter low temperature section, "
-							"store_level:%d%%, dropping_level:%d%%, "
-							"prev_level:%d%%, level:%d%%.\n"
-							, store_level, prev_level, dropping_level
-							, htc_batt_info.rep.level);
+				dropping_level = prev_level - htc_batt_info.rep.level;
+				if((dropping_level == 1) || (dropping_level == 0)) {
+					store_level = store_level - (2 - dropping_level);
+					htc_batt_info.rep.level = htc_batt_info.rep.level -
+						(2 - dropping_level);
 				}
+				pr_debug("[BATT] remap: enter low temperature section, "
+						"store_level:%d%%, dropping_level:%d%%, "
+						"prev_level:%d%%, level:%d%%.\n"
+						, store_level, prev_level, dropping_level
+						, htc_batt_info.rep.level);
 			}
-			else
-				time_accumulated = 0;
 		}
 		if ((htc_batt_info.rep.level == 0) && (prev_level > 1)) {
 			htc_batt_info.rep.level = 1;
@@ -1814,9 +1790,9 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 				if (htc_batt_info.smooth_chg_full_delay_min
 						&& prev_level < 100) {
 					
-					if (is_level_change_time_reached(htc_batt_info.smooth_chg_full_delay_min
-							* CHG_ONE_PERCENT_LIMIT_PERIOD_MS,
-							pre_jiffies) == false) {
+					if (time_accumulated_level_change <
+							(htc_batt_info.smooth_chg_full_delay_min
+							* CHG_ONE_PERCENT_LIMIT_PERIOD_MS)) {
 						htc_batt_info.rep.level = prev_level;
 					} else {
 						htc_batt_info.rep.level = prev_level + 1;
@@ -1865,7 +1841,7 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 		htc_batt_get_battery_ui_soc(&htc_batt_info.rep.level);
 
 	if (htc_batt_info.rep.level != prev_level)
-		pre_jiffies = jiffies;
+		time_accumulated_level_change = 0;
 
 	first = 0;
 }
