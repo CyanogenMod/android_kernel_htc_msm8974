@@ -83,7 +83,7 @@ static uint32_t correction_table[10] = {0};
 static uint32_t adctable[10] = {0};
 static int record_adc[6] = {0};
 static int avg_min_adc = 0;
-static int p_status = 1;
+static int p_status = 9;
 static int p_irq_status;
 static int prev_correction;
 static uint8_t ps1_canc_set;
@@ -1118,7 +1118,7 @@ static int psensor_enable(struct cm3629_info *lpi)
 	int index = 0;
 #endif
 	mutex_lock(&ps_enable_mutex);
-
+	p_status = 1;
 	D("[PS][cm3629] %s lpi->dynamical_threshold :%d,lpi->mfg_mode:%d",
 				__func__, lpi->dynamical_threshold, lpi->mfg_mode);
 
@@ -1272,7 +1272,7 @@ static int psensor_disable(struct cm3629_info *lpi)
 			_cm3629_I2C_Write2(lpi->cm3629_slave_address, PS_1_thd, cmd, 3);
 		}
 	}
-	p_status = 1;
+	p_status = 9;
 	mutex_unlock(&ps_enable_mutex);
 	D("[PS][cm3629] %s --%d\n", __func__, lpi->ps_enable);
 	return ret;
@@ -2981,7 +2981,6 @@ static int __devinit cm3629_probe(struct i2c_client *client,
 	struct cm3629_platform_data *pdata;
 
 	D("[PS][cm3629] %s\n", __func__);
-
 
 	lpi = kzalloc(sizeof(struct cm3629_info), GFP_KERNEL);
 	if (!lpi)
