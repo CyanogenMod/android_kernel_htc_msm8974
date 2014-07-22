@@ -16,7 +16,7 @@
  * file.
  */
 
-/include/ "msm8226.dtsi"
+/include/ "msm8226-1G.dtsi"
 /include/ "msm8226-v2-pm.dtsi"
 
 / {

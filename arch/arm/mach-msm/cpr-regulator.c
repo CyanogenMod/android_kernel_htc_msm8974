@@ -208,6 +208,9 @@ struct cpr_regulator {
 	int		*corner_map;
 	u32		num_corners;
 	int		*quot_adjust;
+#ifdef CONFIG_ARCH_MSM8226
+	u32		htc_pvs_corner_v[CPR_FUSE_CORNER_MAX];
+#endif
 };
 
 #define CPR_DEBUG_MASK_IRQ	BIT(0)
@@ -500,8 +503,8 @@ static int cpr_mx_set(struct cpr_regulator *cpr_vreg, int corner,
 
 	rc = regulator_set_voltage(cpr_vreg->vdd_mx, vdd_mx_vmin,
 				   cpr_vreg->vdd_mx_vmax);
-	cpr_debug("[corner:%d, fuse_corner:%d] %d uV\n", corner,
-			fuse_corner, vdd_mx_vmin);
+	cpr_debug("[corner:%d, fuse_corner:%d] %d uV %d uV\n", corner,
+			fuse_corner, vdd_mx_vmin, cpr_vreg->vdd_mx_vmax);
 
 	if (!rc) {
 		cpr_vreg->vdd_mx_vmin = vdd_mx_vmin;
@@ -808,6 +811,11 @@ static int cpr_regulator_disable(struct regulator_dev *rdev)
 	return rc;
 }
 
+#ifdef CONFIG_ARCH_MSM8226
+bool htc_pvs_adjust = false;
+u32 htc_pvs_adjust_seconds = 0;
+#endif
+
 static int cpr_regulator_set_voltage(struct regulator_dev *rdev,
 		int corner, int corner_max, unsigned *selector)
 {
@@ -823,8 +831,17 @@ static int cpr_regulator_set_voltage(struct regulator_dev *rdev,
 		cpr_ctl_disable(cpr_vreg);
 		new_volt = cpr_vreg->last_volt[corner];
 	} else {
+#ifdef CONFIG_ARCH_MSM8226
+		if (!htc_pvs_adjust) {
+			new_volt = cpr_vreg->pvs_corner_v
+				[cpr_vreg->process][fuse_corner];
+		} else {
+			new_volt = cpr_vreg->htc_pvs_corner_v[fuse_corner];
+		}
+#else
 		new_volt = cpr_vreg->pvs_corner_v
 				[cpr_vreg->process][fuse_corner];
+#endif
 	}
 
 	cpr_debug("[corner:%d, fuse_corner:%d] = %d uV\n", corner, fuse_corner,
@@ -1837,6 +1854,64 @@ static int __devinit cpr_voltage_plan_init(struct platform_device *pdev,
 	return 0;
 }
 
+#if CONFIG_ARCH_MSM8226
+static int __devinit htc_init_corner(struct platform_device *pdev,
+					struct cpr_regulator *cpr_vreg)
+{
+	struct device_node *of_node = pdev->dev.of_node;
+	int rc = 0;
+	int i;
+
+	htc_pvs_adjust = of_property_read_bool(of_node, "htc,pvs-corner-adjust");
+	if (htc_pvs_adjust) {
+		rc = of_property_read_u32(of_node, "htc,pvs-corner-adjust-timetick", &htc_pvs_adjust_seconds);
+		if (rc < 0) {
+			pr_err("[HTC] pvs adjustment timetick missing, %d\n", rc);
+			return rc;
+		}
+	} else {
+		pr_info("[HTC] No HTC pvs corner adjustment.\n");
+		return 0;
+	}
+
+	if (cpr_vreg->speed_bin == 0) {
+		rc = of_property_read_u32_array(of_node,
+				"htc,pvs-corner-ceiling-8926",
+				&cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_SVS],
+				CPR_FUSE_CORNER_MAX - CPR_FUSE_CORNER_SVS);
+		if (rc < 0) {
+			pr_err("htc,pvs-corner-ceiling-8926 missing: rc=%d\n", rc);
+			return rc;
+		}
+	} else {
+		rc = of_property_read_u32_array(of_node,
+				"htc,pvs-corner-ceiling-8928",
+				&cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_SVS],
+				CPR_FUSE_CORNER_MAX - CPR_FUSE_CORNER_SVS);
+		if (rc < 0) {
+			pr_err("htc,pvs-corner-ceiling-8928 missing: rc=%d\n", rc);
+			return rc;
+		}
+	}
+
+	for (i = CPR_FUSE_CORNER_SVS; i < CPR_FUSE_CORNER_MAX; i++) {
+		if(cpr_vreg->htc_pvs_corner_v[i] > cpr_vreg->ceiling_volt[i])
+			cpr_vreg->ceiling_volt[i] = cpr_vreg->htc_pvs_corner_v[i];
+	}
+
+	if(cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_TURBO] > cpr_vreg->ceiling_max)
+		cpr_vreg->ceiling_max = cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_TURBO];
+
+	pr_info("[HTC] Adjust pvs-corner-ceiling to [%d %d %d] uV in %d seconds.\n",
+			cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_SVS],
+			cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_NORMAL],
+			cpr_vreg->htc_pvs_corner_v[CPR_FUSE_CORNER_TURBO],
+			htc_pvs_adjust_seconds);
+
+	return 0;
+}
+#endif
+
 static int __devinit cpr_regulator_probe(struct platform_device *pdev)
 {
 	struct cpr_regulator *cpr_vreg;
@@ -1897,6 +1972,14 @@ static int __devinit cpr_regulator_probe(struct platform_device *pdev)
 		pr_err("Initialize CPR failed: rc=%d\n", rc);
 		goto err_out;
 	}
+
+#if CONFIG_ARCH_MSM8226
+	rc = htc_init_corner(pdev, cpr_vreg);
+	if (rc) {
+		pr_err("Iniyialize HTC modifications failed: rc=%d\n", rc);
+		goto err_out;
+	}
+#endif
 
 	cpr_efuse_free(cpr_vreg);
 

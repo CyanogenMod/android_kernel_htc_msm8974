@@ -479,7 +479,9 @@ void msm_restart(char mode, const char *cmd)
 		
 		msm_disable_wdog_debug();
 		halt_spmi_pmic_arbiter();
-#ifndef CONFIG_ARCH_MSM8226
+#if defined(CONFIG_ARCH_MSM8226) && defined(CONFIG_HTC_DEBUG_WATCHDOG)
+		msm_watchdog_reset();
+#else
 		__raw_writel(0, MSM_MPM2_PSHOLD_BASE);
 #endif
 	}

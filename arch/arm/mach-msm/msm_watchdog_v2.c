@@ -38,6 +38,31 @@
 
 #define MPM_SCLK_COUNT_VAL	(0x0)
 #define MPM_SLEEP_CLK_BASE	(MSM_MPM_SLEEPTICK_BASE + MPM_SCLK_COUNT_VAL)
+
+#ifdef CONFIG_ARCH_MSM8226
+extern bool htc_pvs_adjust;
+extern u32  htc_pvs_adjust_seconds;
+
+uint32_t mpm_get_timetick(void)
+{
+	volatile uint32_t i = 0;
+	volatile uint32_t tick;
+	volatile uint32_t tick_count;
+
+	tick = __raw_readl(MPM_SLEEP_CLK_BASE);
+	for (i; i < 3; i++)
+	{
+	  tick_count = __raw_readl(MPM_SLEEP_CLK_BASE);
+	  if (tick != tick_count)
+	  {
+		i = 0;
+		tick = __raw_readl(MPM_SLEEP_CLK_BASE);
+	  }
+	}
+	mb();
+	return tick;
+}
+#endif
 #endif
 
 #define MODULE_NAME "msm_watchdog"
@@ -117,6 +142,19 @@ void msm_watchdog_bark(void)
 	__raw_writel(1, msm_wdt_base + WDT0_EN);
 }
 EXPORT_SYMBOL(msm_watchdog_bark);
+
+#ifdef CONFIG_ARCH_MSM8226
+void msm_watchdog_reset(void)
+{
+	pr_info("%s: triggering MSM Apps Watchdog bark...\n", __func__);
+
+	__raw_writel(1, msm_wdt_base + WDT0_RST);
+	__raw_writel(0x31F3, msm_wdt_base + WDT0_BARK_TIME);
+	__raw_writel(5*0x31F3, msm_wdt_base + WDT0_BITE_TIME);
+	__raw_writel(1, msm_wdt_base + WDT0_EN);
+}
+EXPORT_SYMBOL(msm_watchdog_reset);
+#endif
 #endif
 
 static long WDT_HZ = 32765;
@@ -437,6 +475,14 @@ static void pet_watchdog_work(struct work_struct *work)
 	htc_debug_watchdog_dump_irqs(0);
 #endif
 #endif 
+
+#ifdef CONFIG_HTC_DEBUG_FOOTPRINT
+#ifdef CONFIG_ARCH_MSM8226
+	if ((mpm_get_timetick() > (htc_pvs_adjust_seconds*WDT_HZ)) && htc_pvs_adjust) {
+		htc_pvs_adjust = false;
+	}
+#endif
+#endif
 }
 
 static int msm_watchdog_remove(struct platform_device *pdev)
