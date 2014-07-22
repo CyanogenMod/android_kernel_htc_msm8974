@@ -25,6 +25,7 @@
 #include <linux/htc_flashlight.h>
 #include <linux/module.h>
 #include <mach/socinfo.h>
+#include <linux/reboot.h>
 
 #define FLT_DBG_LOG(fmt, ...) \
 		printk(KERN_DEBUG "[FLT]TPS " fmt, ##__VA_ARGS__)
@@ -72,6 +73,7 @@ static int tps61310_i2c_command(uint8_t, uint8_t);
 int tps61310_flashlight_control(int);
 int tps61310_flashlight_mode(int);
 int tps61310_flashlight_mode2(int, int);
+static int flashlight_turn_off(void);
 
 static int uncertain_support_dual_flashlight(void)
 {
@@ -150,6 +152,24 @@ static ssize_t support_dual_flashlight_store(
 
 static DEVICE_ATTR(support_dual_flashlight, 0664,
 		   support_dual_flashlight_show, support_dual_flashlight_store);
+
+static ssize_t poweroff_store(
+		struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t size)
+{
+	int input;
+	input = simple_strtoul(buf, NULL, 10);
+
+	if(input == 1){
+		flashlight_turn_off();
+	}else
+		FLT_INFO_LOG("%s: Input out of range\n",__func__);
+
+	return size;
+}
+
+static DEVICE_ATTR(poweroff, 0220,
+		   NULL, poweroff_store);
 
 static ssize_t sw_timeout_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -362,6 +382,26 @@ static int flashlight_turn_off(void)
 	this_tps61310->mode_status = FL_MODE_OFF;
 	return 0;
 }
+
+static int reboot_notify_sys(struct notifier_block *this,
+			      unsigned long event,
+			      void *unused)
+{
+	FLT_INFO_LOG("%s: %ld", __func__, event);
+	switch (event) {
+		case SYS_RESTART:
+		case SYS_HALT:
+		case SYS_POWER_OFF:
+			flashlight_turn_off();
+			return NOTIFY_OK;
+	}
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block reboot_notifier = {
+	.notifier_call  = reboot_notify_sys,
+};
+
 
 void retry_flashlight_control(int err, int mode)
 {
@@ -1702,6 +1742,12 @@ static int tps61310_probe(struct i2c_client *client,
 
 	this_tps61310 = tps61310;
 
+	ret = register_reboot_notifier(&reboot_notifier);
+	if (err < 0) {
+		FLT_ERR_LOG("%s: Register reboot notifier failed(err=%d)\n", __func__, ret);
+		goto platform_data_null;
+	}
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	tps61310->fl_early_suspend.suspend = flashlight_early_suspend;
 	tps61310->fl_early_suspend.resume  = flashlight_late_resume;
@@ -1718,6 +1764,10 @@ static int tps61310_probe(struct i2c_client *client,
 	err = device_create_file(tps61310->fl_lcdev.dev, &dev_attr_support_dual_flashlight);
 	if (err < 0) {
 		FLT_ERR_LOG("%s, create support_dual_flashlight sysfs fail\n", __func__);
+	}
+	err = device_create_file(tps61310->fl_lcdev.dev, &dev_attr_poweroff);
+	if (err < 0) {
+		FLT_ERR_LOG("%s, create poweroff sysfs fail\n", __func__);
 	}
 	err = device_create_file(tps61310->fl_lcdev.dev, &dev_attr_sw_timeout);
 	if (err < 0) {
@@ -1807,6 +1857,7 @@ static int tps61310_remove(struct i2c_client *client)
 		}
 	}
 
+	unregister_reboot_notifier(&reboot_notifier);
 	led_classdev_unregister(&tps61310->fl_lcdev);
 	destroy_workqueue(tps61310_work_queue);
 	mutex_destroy(&tps61310_mutex);
@@ -1837,6 +1888,7 @@ static int tps61310_suspend(struct i2c_client *client, pm_message_t state)
 		if (this_tps61310->mode_pin_suspend_state_low)
 			gpio_set_value_cansleep(this_tps61310->strb1, 0);
 
+		flashlight_turn_off();
 		return 0;
 }
 
