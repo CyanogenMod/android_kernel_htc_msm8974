@@ -3207,6 +3207,12 @@ config MACH_M8_WL
         help
           Support for HTC MSM8974 M8_WL
 
+config MACH_MEM_UL
+        depends on ARCH_MSM8226
+        bool "MSM8226 MEM_UL"
+        help
+          Support for HTC MSM8226 MEM_UL
+
 config MACH_A5
         depends on ARCH_MSM8226
         bool "MSM8226 A5"
