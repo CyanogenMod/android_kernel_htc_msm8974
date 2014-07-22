@@ -105,6 +105,25 @@ static int second_detect(struct cable_detect_info *pInfo);
 static void usb_id_detect_init(struct cable_detect_info *info);
 #endif
 
+#ifdef CONFIG_USB_DWC3_MSM
+int htc_dwc3_get_cable_type(void);
+#elif CONFIG_USB_MSM_OTG
+int htc_msm_otg_get_cable_type(void);
+#endif
+
+
+int htc_get_usb_charger_type(void)
+{
+#ifdef CONFIG_USB_DWC3_MSM
+	return htc_dwc3_get_cable_type();
+#elif CONFIG_USB_MSM_OTG
+	return htc_msm_otg_get_cable_type();
+#else
+	CABLE_WARNING("%s no proper USB MACRO is enabled\n",__func__);
+	return 0;
+#endif
+}
+
 static DEFINE_MUTEX(cable_notify_sem);
 static void send_cable_connect_notify(int cable_type)
 {
