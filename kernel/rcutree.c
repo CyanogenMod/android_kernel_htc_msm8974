@@ -1035,7 +1035,6 @@ static void rcu_cleanup_dead_cpu(int cpu, struct rcu_state *rsp)
 
 	/* Remove the outgoing CPU from the masks in the rcu_node hierarchy. */
 	mask = rdp->grpmask;	/* rnp->grplo is constant. */
->>>>>>> bd4ae36... rcu: Make rcu_barrier() less disruptive
 	do {
 		raw_spin_lock(&rnp->lock);	
 		rnp->qsmaskinit &= ~mask;
