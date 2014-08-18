@@ -117,6 +117,9 @@ struct wake_lock ges_wake_lock;
 struct wake_lock significant_wake_lock;
 
 static int power_key_pressed = 0;
+
+static int tap2wake = 0;
+
 struct CWMCU_data {
 	struct i2c_client *client;
 	atomic_t delay;
@@ -1383,6 +1386,26 @@ static int boot_mode_show(struct device *dev, struct device_attribute *attr, cha
 		return snprintf(buf, PAGE_SIZE, "%d\n", mcu_data->mfg_mode);
 	} else
 		return snprintf(buf, PAGE_SIZE, "%d\n", -1);
+}
+
+static int tap2wake_set(struct device *dev, struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	int val;
+	sscanf(buf, "%du", &val);
+
+	if (val > 1 || val < 0) {
+		pr_err("[CWMCU] %s: tap2wake value %d is invalid!\n", __func__, val);
+	} else {
+		tap2wake = val;
+	}
+
+	return count;
+}
+
+static int tap2wake_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", tap2wake);
 }
 
 #if 0
@@ -2685,10 +2708,13 @@ static void cwmcu_irq_work_func(struct work_struct *work)
 		D("[CWMCU]CW_MCU_INT_BIT_HTC_GESTURE_MOTION_HIDI: i2c bus read %d bytes\n", ret);
 		data_event = (s32)((data[0] & 0x1F) | (((data[1] | (data[2] << 8)) & 0x3FF) << 5) | (data[3] << 15) | (data[4] << 23));
 		if (vib_trigger) {
+#if 0
 			if (data[0] == 14) {
 				vib_trigger_event(vib_trigger, VIB_TIME);
 				D("Gesture motion HIDI detected, vibrate for %d ms!\n", VIB_TIME);
 			} else if(data[0] == 6 || data[0] == 15 || data[0] == 18 || data[0] == 19 || data[0] == 24 || data[0] == 25 || data[0] == 26 || data[0] == 27) {
+#endif
+			if (data[0] == 15 && tap2wake == 1) {
 				vib_trigger_event(vib_trigger, VIB_TIME);
 				sensor->sensors_time[Gesture_Motion_HIDI] = 0;
 				input_report_rel(sensor->input, HTC_Gesture_Motion_HIDI, data_event);
@@ -2697,6 +2723,7 @@ static void cwmcu_irq_work_func(struct work_struct *work)
 				D("[CWMCU][vib_trigger] Gesture_Motion_HIDI: df0: %d, d0: %d, d1: %d\n", data_buff[0], data[0], data[1]);
 				D("[CWMCU][vib_trigger] Gesture_Motion_HIDI: data_buff: %d, data_event: %d\n", data_buff[1], data_event);
 				D("[CWMCU][vib_trigger] Gesture_Motion_HIDI input sync\n");
+#if 0
 			} else {
                                 sensor->sensors_time[Gesture_Motion_HIDI] = 0;
                                 input_report_rel(sensor->input, HTC_Gesture_Motion_HIDI, data_event);
@@ -2705,6 +2732,7 @@ static void cwmcu_irq_work_func(struct work_struct *work)
                                 D("[CWMCU][disable vib_trigger] Gesture_Motion_HIDI: df0: %d, d0: %d, d1: %d\n", data_buff[0], data[0], data[1]);
                                 D("[CWMCU][disable vib_trigger] Gesture_Motion_HIDI: data_buff: %d, data_event: %d\n", data_buff[1], data_event);
                                 D("[CWMCU][disable vib_trigger] Gesture_Motion_HIDI input sync\n");
+#endif
 			}
 		} else {
 			sensor->sensors_time[Gesture_Motion_HIDI] = 0;
@@ -3062,6 +3090,7 @@ static struct device_attribute attributes[] = {
 #ifdef HTC_ENABLE_SENSORHUB_UART_DEBUG
 	__ATTR(uart_debug, 0666, NULL, uart_debug_switch),
 #endif
+	__ATTR(tap2wake, 0666, tap2wake_show, tap2wake_set),
 };
 
 
