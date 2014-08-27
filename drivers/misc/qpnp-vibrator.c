@@ -141,14 +141,14 @@ static int qpnp_vib_set(struct qpnp_vib *vib, int on)
 		val = vib->reg_vtg_ctl;
 		val &= ~QPNP_VIB_VTG_SET_MASK;
 		val |= (vib->vtg_level & QPNP_VIB_VTG_SET_MASK);
-		printk(KERN_INFO "[VIB] on, reg0=0x%x.\n", val);
+		pr_debug("[VIB] on, reg0=0x%x.\n", val);
 		rc = qpnp_vib_write_u8(vib, &val, QPNP_VIB_VTG_CTL(vib->base));
 		if (rc < 0)
 			return rc;
 		vib->reg_vtg_ctl = val;
 		val = vib->reg_en_ctl;
 		val |= QPNP_VIB_EN;
-		printk(KERN_INFO "[VIB] on, reg1=0x%x.\n", val);
+		pr_debug("[VIB] on, reg1=0x%x.\n", val);
 		rc = qpnp_vib_write_u8(vib, &val, QPNP_VIB_EN_CTL(vib->base));
 		if (rc < 0)
 			return rc;
@@ -156,7 +156,7 @@ static int qpnp_vib_set(struct qpnp_vib *vib, int on)
 	} else {
 		val = vib->reg_en_ctl;
 		val &= ~QPNP_VIB_EN;
-		printk(KERN_INFO "[VIB] off, reg1=0x%x.\n", val);
+		pr_debug("[VIB] off, reg1=0x%x.\n", val);
 		rc = qpnp_vib_write_u8(vib, &val, QPNP_VIB_EN_CTL(vib->base));
 		if (rc < 0)
 			return rc;
@@ -180,7 +180,7 @@ retry:
 		goto retry;
 	}
 
-	printk(KERN_INFO "[VIB] enable=%d.\n", value);
+	pr_debug("[VIB] enable=%d.\n", value);
 
 	if (value == 0)
 		vib->state = 0;
@@ -206,8 +206,7 @@ static void qpnp_vib_trigger_enable(struct vib_trigger_enabler *enabler, int val
 	vib = enabler->trigger_data;
 	dev = &vib->timed_dev;
 
-	printk(KERN_INFO "[VIB]"
-			"vib_trigger=%d.\r\n", value);
+	pr_debug("[VIB] vib_trigger=%d.\r\n", value);
 
 	qpnp_vib_enable(dev, value);
 }
@@ -270,9 +269,9 @@ static ssize_t voltage_level_store(
 
 	voltage_input = -1;
 	sscanf(buf, "%d ",&voltage_input);
-	printk(KERN_INFO "[VIB] voltage input: %d\n", voltage_input);
+	pr_debug("[VIB] voltage input: %d\n", voltage_input);
 	if (voltage_input/100 < QPNP_VIB_MIN_LEVEL || voltage_input/100 > QPNP_VIB_MAX_LEVEL){
-		printk(KERN_INFO "[VIB] invalid voltage level input: %d\n",voltage_input);
+		pr_err("[VIB] invalid voltage level input: %d\n",voltage_input);
 		return -EINVAL;
 	}
 	vib->vtg_level = voltage_input/100;
@@ -362,7 +361,7 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 
 	rc = device_create_file(vib->timed_dev.dev, &dev_attr_voltage_level);
 	if (rc < 0) {
-		printk(KERN_INFO "[VIB] %s, create sysfs fail: voltage_level\n", __func__);
+		pr_err("[VIB] %s, create sysfs fail: voltage_level\n", __func__);
 	}
 
 #ifdef CONFIG_VIB_TRIGGERS
