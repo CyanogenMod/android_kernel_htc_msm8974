@@ -67,7 +67,7 @@ static int UseWakeMcu = 0;
 #define MAX_BACKUP_CALL_STACK_SIZE 64
 #define MAX_CALL_STACK_SIZE 512
 #define MAX_I2C_BUF_SIZE 32
-#define VIB_TIME 20
+#define VIB_TIME 40
 static int cwmcu_opened;
 static int cwmcu_wdg_reset = 0;
 static int cwmcu_i2c_error = 0;
