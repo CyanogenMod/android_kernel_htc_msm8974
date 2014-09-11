@@ -2501,6 +2501,10 @@ static void cwmcu_irq_work_func(struct work_struct *work)
 		}
 		clear_intr = CW_MCU_INT_BIT_HTC_GESTURE_MOTION_HIDI;
 		ret = CWMCU_i2c_write(sensor, CWSTM32_INT_ST4, &clear_intr, 1);
+		msleep(5);
+		gpio_direction_output(sensor->gpio_reset, 0);
+		msleep(1);
+		gpio_direction_output(sensor->gpio_reset, 1);
 	}
 
 	if (INT_st4 & CW_MCU_INT_BIT_HTC_MATRIX_GESTURE_HIDI) {
