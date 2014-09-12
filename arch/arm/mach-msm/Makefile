@@ -460,6 +460,7 @@ obj-$(CONFIG_ARCH_MSM8226) += htc_acoustic_alsa.o
 obj-$(CONFIG_MACH_M8) += board-m8-gpiomux.o board-m8-audio.o
 obj-$(CONFIG_MACH_M8_WHL) += board-m8-gpiomux.o board-m8-audio.o
 obj-$(CONFIG_MACH_M8_WL) += board-m8-gpiomux.o board-m8-audio.o
+obj-$(CONFIG_MACH_A5) += board-a5-gpiomux.o board-afe-audio-amp.o
 
 obj-$(CONFIG_HTC_HEADSET_PMIC) += htc_headset_pmic.o
 obj-$(CONFIG_HTC_HEADSET_GPIO) += htc_headset_gpio.o

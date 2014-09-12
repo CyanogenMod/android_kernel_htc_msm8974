@@ -1,0 +1,135 @@
+/*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+
+	led_flash0: qcom,camera-led-flash {
+		cell-index = <0>;
+		compatible = "qcom,camera-led-flash";
+		qcom,flash-type = <1>;
+		qcom,flash-source = <&pm8226_flash0 &pm8226_flash1>;
+		qcom,torch-source = <&pm8226_torch>;
+                htc,flash-mode-trigger-name = "htc_flash_mode";
+	};
+};
+
+&cci {
+	actuator0: qcom,actuator@1c {
+		cell-index = <0>;
+		reg = <0x1c>;
+		compatible = "qcom,actuator";
+		qcom,cci-master = <0>;
+	};
+
+	qcom,camera@6c {
+		compatible = "htc,ov13850";
+		reg = <0x6c>;
+		qcom,slave-id = <0x6c 0x300a 0xd850>;
+		qcom,csiphy-sd-index = <0>;
+		qcom,csid-sd-index = <0>;
+		qcom,actuator-src = <&actuator0>;
+		qcom,led-flash-src = <&led_flash0>;
+
+		qcom,mount-angle = <90>;
+		qcom,sensor-name = "ov13850";
+		qcom,htc-image = <0>;
+		htc,pm-ncp6924 = <1>;
+		cam_vdig-supply = <&msmgpio 55 0>;
+		cam_vana-supply = <&msmgpio 111 0>;
+		cam_vio-supply = <&msmgpio 11 0>;
+		cam_vaf-supply = <&msmgpio 110 0>;
+		qcom,cam-vreg-name = "cam_vdig", "cam_vio", "cam_vana",
+							 "cam_vaf";
+		qcom,cam-vreg-type = <2 2 2 2>;
+		qcom,cam-vreg-min-voltage = <0 0 0 0>;
+		qcom,cam-vreg-max-voltage = <0 0 0 0>;
+		qcom,cam-vreg-op-mode = <0 0 0 0>;
+
+		qcom,gpio-no-mux = <0>;
+		gpios = <&msmgpio 26 0>,
+			<&msmgpio 36 0>,
+			<&msmgpio 112 0>,
+			<&pm8226_gpios 7 0>;
+
+		qcom,gpio-reset = <1>;
+		qcom,gpio-vcm-pwd = <2>;
+		qcom,gpio-req-tbl-num = <0 1 2 3>;
+		qcom,gpio-req-tbl-flags = <0 0 0 0>;
+		qcom,gpio-req-tbl-label = "MCLK_CPU",
+					  "CAM_PWDN",
+					  "VCM_PWD",
+					  "CAM_ID";
+
+		qcom,csi-lane-assign = <0x4320>;
+		qcom,csi-lane-mask = <0x1F>;
+		qcom,sensor-position = <0>;
+		qcom,sensor-mode = <1>;
+		qcom,cci-master = <0>;
+		ncp6924_vaf-supply = <&ncp6924_ldo2>;
+		ncp6924_vio-supply = <&ncp6924_ldo3>;
+		ncp6924_vana-supply = <&ncp6924_ldo1>;
+		ncp6924_vdig-supply = <&ncp6924_dcdc2>;
+		htc,ncp6924-vreg-name = "ncp6924_vdig", "ncp6924_vio", "ncp6924_vana","ncp6924_vaf";
+		htc,ncp6924-vreg-min-voltage = <1200000 1800000 2800000 2800000>;
+		htc,ncp6924-vreg-max-voltage = <1200000 1800000 2800000 2800000>;
+		status = "ok";
+	};
+
+           qcom,camera@20 {
+               compatible = "htc,s5k5e_onelane";
+               reg = <0x20>;
+               qcom,slave-id = <0x20 0x0000 0x5E20>;
+
+               qcom,csiphy-sd-index = <1>;
+               qcom,csid-sd-index = <1>;
+               qcom,mount-angle = <270>;
+               qcom,sensor-name = "s5k5e_onelane";
+               qcom,htc-image = <0>;
+              htc,pm-ncp6924 = <1>;
+			  cam_vdig-supply = <&msmgpio 55 0>;
+			  cam_vana-supply = <&msmgpio 111 0>;
+			  cam_vio-supply = <&msmgpio 11 0>;
+			  cam_vaf-supply = <&msmgpio 110 0>;
+			  qcom,cam-vreg-name = "cam_vdig", "cam_vio", "cam_vana",
+							 "cam_vaf";
+			  qcom,cam-vreg-type = <2 2 2 2>;
+			  qcom,cam-vreg-min-voltage = <0 0 0 0>;
+			  qcom,cam-vreg-max-voltage = <0 0 0 0>;
+			  qcom,cam-vreg-op-mode = <0 0 0 0>;
+
+
+               qcom,gpio-no-mux = <0>;
+			gpios = <&msmgpio 27 0>,
+			<&msmgpio 28 0>;
+
+			qcom,gpio-reset = <1>;
+			qcom,gpio-req-tbl-num = <0 1>;
+			qcom,gpio-req-tbl-flags = <0 0>;
+			qcom,gpio-req-tbl-label = "MCLK_CPU",
+						  "CAM_RESET";
+
+			qcom,csi-lane-assign = <0x4320>;
+			qcom,csi-lane-mask = <0x3>;
+			qcom,sensor-position = <1>;
+			qcom,sensor-mode = <1>;
+			qcom,cci-master = <0>;
+			ncp6924_vaf-supply = <&ncp6924_ldo2>;
+			ncp6924_vio-supply = <&ncp6924_ldo3>;
+			ncp6924_vana-supply = <&ncp6924_ldo1>;
+			ncp6924_vdig-supply = <&ncp6924_dcdc2>;
+			htc,ncp6924-vreg-name = "ncp6924_vdig", "ncp6924_vio", "ncp6924_vana","ncp6924_vaf";
+			htc,ncp6924-vreg-min-voltage = <1200000 1800000 2800000 2800000>;
+			htc,ncp6924-vreg-max-voltage = <1200000 1800000 2800000 2800000>;
+			status = "ok";
+           };
+};
