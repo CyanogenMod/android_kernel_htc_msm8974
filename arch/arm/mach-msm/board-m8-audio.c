@@ -35,7 +35,7 @@
 #include <sound/q6afe-v2.h>
 #include <asm/mach-types.h>
 #include <mach/subsystem_notif.h>
-#include "../../../sound/soc/msm/qdsp6v2/q6core.h"
+#include <sound/q6core.h>
 #include <mach/socinfo.h>
 #include <sound/pcm_params.h>
 #include "../../../sound/soc/msm/qdsp6v2/msm-pcm-routing-v2.h"
