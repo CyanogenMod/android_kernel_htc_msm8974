@@ -79,10 +79,10 @@
 		qcom,mdss-pan-physical-width-dimension = <53>;
 		qcom,mdss-pan-physical-height-dimension = <94>;
 		qcom,mdss-shrink-pwm = <7 61 255>;
-		qcom,mdss-shrink-pwm-cmcc = <7 61 255>;
+		qcom,mdss-shrink-pwm-power-hack = <7 61 255>;
 		qcom,mdss-dsi-lp11-init;
 		htc,mdss-camera-blk = <194>;
-		htc,mdss-camera-blk-cmcc = <169>;
+		htc,mdss-camera-blk-power-hack = <169>;
 		htc,mdp-pcc-r = <0x8000>;
 		htc,mdp-pcc-g = <0x7B8D>;
 		htc,mdp-pcc-b = <0x7BAB>;

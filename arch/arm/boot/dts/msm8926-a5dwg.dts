@@ -15,9 +15,9 @@
 /include/ "msm8226-720p-mtp.dtsi"
 /include/ "msm8226-camera-sensor-A5.dtsi"
 /include/ "msm-ncp6924.dtsi"
-/include/ "dsi-panel-a5dwg.dtsi"
-/include/ "msm8226-a5dwg-storage.dtsi"
-/include/ "msm8926-touch-a5dwg-config.dtsi"
+/include/ "dsi-panel-a5.dtsi"
+/include/ "msm8226-a5-storage.dtsi"
+/include/ "msm8926-touch-a5-config.dtsi"
 
 
 / {
