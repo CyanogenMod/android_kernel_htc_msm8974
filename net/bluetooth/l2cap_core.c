@@ -1746,7 +1746,7 @@ struct sk_buff *l2cap_create_iframe_pdu(struct sock *sk,
 					u16 sdulen, int reseg)
 {
 	struct sk_buff *skb;
-	int err, count, hlen;
+	int err = 0, count, hlen;
 	int reserve = 0;
 	struct l2cap_hdr *lh;
 	u8 fcs = l2cap_pi(sk)->fcs;

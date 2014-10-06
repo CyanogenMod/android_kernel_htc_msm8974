@@ -1108,7 +1108,7 @@ static int qpnp_pin_is_valid_pin(struct qpnp_pin_spec *q_spec)
 int qpnp_pin_dump(struct seq_file *m, int curr_len, char *gpio_buffer)
 {
         int i, j, rc;
-        u64 value;
+        u64 value = 0;
         enum qpnp_pin_param_type type;
         const char *filename;
         int len;
