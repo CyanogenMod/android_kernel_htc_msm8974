@@ -2883,8 +2883,7 @@ static __devinit int msm8226_asoc_machine_probe(struct platform_device *pdev)
 			continue;
 		}
 		for (j = 0; j < ARRAY_SIZE(HTC_AUD_HW_LIST); j++) {
-			if (!strncmp(str, HTC_AUD_HW_LIST[j].name, sizeof(HTC_AUD_HW_LIST[j].name)) &&
-                strlen(str) == strlen(HTC_AUD_HW_LIST[j].name)) {
+			if (!strcmp(str, HTC_AUD_HW_LIST[j].name)) {
 				htc_hw_component_mask |= HTC_AUD_HW_LIST[j].id;
 				dev_info(&pdev->dev, "Found HW: %s, htc_hw_component_mask 0x%X.\n",
 					HTC_AUD_HW_LIST[j].name, htc_hw_component_mask);
