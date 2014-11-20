@@ -28,7 +28,7 @@
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#include <linux/nfc/pn544.h>
+#include <linux/pn544.h>
 #include <linux/poll.h>
 #include <linux/regulator/consumer.h>
 #include <linux/serial_core.h> 

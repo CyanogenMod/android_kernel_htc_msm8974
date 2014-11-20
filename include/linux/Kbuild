@@ -6,6 +6,7 @@ header-y += hdlc/
 header-y += hsi/
 header-y += isdn/
 header-y += mmc/
+header-y += nfc/
 header-y += nfsd/
 header-y += raid/
 header-y += spi/
