@@ -11,7 +11,7 @@
  */
 
 /dts-v1/;
-/include/ "msm8926-1G.dtsi"
+/include/ "msm8926.dtsi"
 /include/ "msm8226-720p-mtp.dtsi"
 /include/ "msm8226-camera-sensor-evm.dtsi"
 /include/ "dsi-panel-mem.dtsi"
@@ -277,6 +277,7 @@
 			qcom,msm-mi2s-tx-lines = <2>;
 		};
 	};
+	/delete-node/ sound-9302;
 /*Audio config end*/
 	/include/ "msm8926-ax-soc-mem.dtsi"
 };
